@@ -1,0 +1,61 @@
+{
+  "testOne": {
+    "name": "test",
+    "depends": [],
+    "columns": [
+      { "name": "id", "type": "increments" },
+      {
+        "name": "name",
+        "type": "text",
+        "options": [{ "type": "notNullable" }]
+      },
+      {
+        "name": "schema_type",
+        "type": "text",
+        "options": [{ "type": "notNullable" }]
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "options": [{ "type": "notNullable" }]
+      },
+      {
+        "name": "shared",
+        "type": "bool",
+        "options": [{ "type": "notNullable" }]
+      }
+    ]
+  },
+  "testTwo": {
+    "name": "dependent",
+    "depends": [],
+    "columns": [
+      { "name": "id", "type": "increments" },
+      {
+        "name": "name",
+        "type": "text",
+        "options": [{ "type": "notNullable" }]
+      },
+      {
+        "name": "test_id",
+        "type": "integer",
+        "options": [{ "type": "references", "argument": "test.id" }]
+      },
+      {
+        "name": "schema_type",
+        "type": "text",
+        "options": [{ "type": "notNullable" }]
+      },
+      {
+        "name": "status",
+        "type": "text",
+        "options": [{ "type": "notNullable" }]
+      },
+      {
+        "name": "shared",
+        "type": "bool",
+        "options": [{ "type": "notNullable" }]
+      }
+    ]
+  }
+}

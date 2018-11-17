@@ -1,0 +1,25 @@
+{
+  "name": "feathers-knex-modeler",
+  "version": "1.0.0",
+  "description": "This package allows you to easily extend a table while you are developing it without requiring you to drop tables.",
+  "main": "index.js",
+  "scripts": {
+    "test": "mocha --timeout 1000"
+  },
+  "keywords": [],
+  "author": "Jordan Dziat <jordan@dziat.com>",
+  "repository": "npm/npm",
+  "license": "ISC",
+  "dependencies": {
+    "debug": "^4.1.0",
+    "lodash": "^4.17.11",
+    "p-queue": "^3.0.0",
+    "p-wait-for": "^2.0.1"
+  },
+  "devDependencies": {
+    "chai": "^4.2.0",
+    "knex": "^0.15.2",
+    "mocha": "^5.2.0",
+    "pg": "^7.6.1"
+  }
+}
