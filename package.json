@@ -8,7 +8,9 @@
   },
   "keywords": [],
   "author": "Jordan Dziat <jordan@dziat.com>",
-  "repository": "npm/npm",
+  "publishConfig": {
+    "registry": "https://registry.npmjs.org/"
+  },
   "license": "ISC",
   "dependencies": {
     "debug": "^4.1.0",

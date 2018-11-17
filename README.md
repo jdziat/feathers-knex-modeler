@@ -16,7 +16,8 @@ The below contain the contents of two files the model file and the service file.
 module.exports = function (app) {
   const tableName = 'users'
   const db = app.get('knexClient')
-  const model = new Model({
+  const Modeler = require('feathers-knex-modeler')
+  const modeler = new Modeler({
     name: tableName,
     depends: [],
     columns:    [
@@ -28,7 +29,7 @@ module.exports = function (app) {
   ],
     db
   })
-  model.init()
+  modeler.init()
   return db
 }
 
