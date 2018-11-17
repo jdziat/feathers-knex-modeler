@@ -1,6 +1,6 @@
 {
   "name": "feathers-knex-modeler",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "This package allows you to easily extend a table while you are developing it without requiring you to drop tables.",
   "main": "index.js",
   "scripts": {
