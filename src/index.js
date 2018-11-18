@@ -87,23 +87,47 @@ class DefaultModel extends EventEmitter {
       const self = this
       const db = self.db
       let errored = false
+      self.debug(`Modifying column: ${column.name}`)
+      self.debug(option)
       db.schema.alterTable(self.name, (table) => {
-        try {
-          let typeOfColumn = option.type
-          let argument = option.argument
-          if (_.isFunction(table[column.type](column.name)[typeOfColumn]) === true) {
-            table[column.type](column.name)[typeOfColumn](argument).alter()
-          } else {
-            self.debug(`${typeOfColumn} is not a function. Error occured on table: ${self.name}`)
+        let alterCommand
+        let typeOfColumn = option.type
+        let argument = option.argument
+        let columnToAlter = table[column.type](column.name)
+
+        switch (typeOfColumn) {
+          case 'notNullable': {
+            alterCommand = columnToAlter.notNullable()
+            break
           }
-        } catch (err) {
-          self.debug(`Failed to alter column on table: ${self.name}`)
-          self.debug(err)
+          case 'nullable': {
+            alterCommand = columnToAlter.nullable()
+            break
+          }
+          case 'primary': {
+            alterCommand = columnToAlter.primary()
+            break
+          }
+          case 'references': {
+            alterCommand = columnToAlter.references(argument)
+            break
+          }
+          case 'unique': {
+            alterCommand = columnToAlter.unique()
+            break
+          }
+          default: {
+            if (_.isFunction(table[column.type](column.name)[typeOfColumn]) === true) {
+              alterCommand = columnToAlter[typeOfColumn](argument)
+            } else {
+              self.debug(`Unable to find the function to perform the alter on the column: ${column.name}`)
+            }
+          }
         }
-        return table
+        return alterCommand.alter()
       })
         .catch((err) => {
-          let alreadyExists = err.message.indexOf('already exists') !== -1
+          let alreadyExists = (err.message.indexOf('already exists') !== -1)
           if (alreadyExists === false) {
             errored = err
           }

@@ -7,16 +7,16 @@ const knex = require('knex')
 
 describe('Feathers-Knex-Modeller', () => {
   before(function (done) {
-    db.schema.hasTable(fixtures.testOne.name)
-      .then((hasTable) => {
-        if (hasTable === true) {
-          return db.raw(`drop table ${fixtures.testOne.name}`)
-        }
-      })
-      .then(() => db.schema.hasTable(fixtures.testTwo.name))
+    db.schema.hasTable(fixtures.testTwo.name)
       .then((hasTable) => {
         if (hasTable === true) {
           return db.raw(`drop table ${fixtures.testTwo.name}`)
+        }
+      })
+      .then(() => db.schema.hasTable(fixtures.testOne.name))
+      .then((hasTable) => {
+        if (hasTable === true) {
+          return db.raw(`drop table ${fixtures.testOne.name}`)
         }
       })
       .then((data) => {
