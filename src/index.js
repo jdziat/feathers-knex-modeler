@@ -93,7 +93,14 @@ class DefaultModel extends EventEmitter {
         let alterCommand
         let typeOfColumn = option.type
         let argument = option.argument
-        let columnToAlter = table[column.type](column.name)
+        let columnToAlter
+        if (_.isArray(column.args) === true && _.isString(column.args) === false) {
+          columnToAlter = table[column.type](column.name, ...column.args)
+        } else if (_.isUndefined(column.args) === true) {
+          columnToAlter = table[column.type](column.name, column.args)
+        } else {
+          columnToAlter = table[column.type](column.name)
+        }
 
         switch (typeOfColumn) {
           case 'notNullable': {
@@ -201,7 +208,7 @@ class DefaultModel extends EventEmitter {
   }
   async waitForTable (tableName) {
     const self = this
-    await pWaitFor(() => self.hasTable(tableName))
+    await pWaitFor(async () => self.hasTable(tableName))
     return self.hasTable(tableName)
   }
   async waitForTables () {

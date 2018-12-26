@@ -1,40 +1,23 @@
 /* eslint-disable no-undef */
 'use strict'
 const expect = require('chai').expect
+const delay = require('delay')
 const fixtures = require('./fixtures.json')
 const Modeler = require('../src/index.js')
 const knex = require('knex')
+const db = knex({
+  client: 'pg',
+  connection: {
+    host: '127.0.0.1',
+    database: 'myapp_test'
+  }
+})
+after(function (done) {
+  db.destroy()
+  done(process.exit())
+})
 
 describe('Feathers-Knex-Modeller', () => {
-  before(function (done) {
-    db.schema.hasTable(fixtures.testTwo.name)
-      .then((hasTable) => {
-        if (hasTable === true) {
-          return db.raw(`drop table ${fixtures.testTwo.name}`)
-        }
-      })
-      .then(() => db.schema.hasTable(fixtures.testOne.name))
-      .then((hasTable) => {
-        if (hasTable === true) {
-          return db.raw(`drop table ${fixtures.testOne.name}`)
-        }
-      })
-      .then((data) => {
-        return done()
-      })
-  })
-
-  after(function (done) {
-    db.destroy()
-    done(process.exit())
-  })
-  const db = knex({
-    client: 'pg',
-    connection: {
-      host: '127.0.0.1',
-      database: 'myapp_test'
-    }
-  })
   let testOne = fixtures.testOne
   let testTwo = fixtures.testTwo
   testOne.db = db

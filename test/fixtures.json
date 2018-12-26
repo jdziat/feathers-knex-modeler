@@ -28,7 +28,7 @@
   },
   "testTwo": {
     "name": "dependent",
-    "depends": [],
+    "depends": ["test"],
     "columns": [
       { "name": "id", "type": "increments" },
       {
