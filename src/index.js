@@ -164,7 +164,7 @@ class DefaultModel extends EventEmitter {
         }
       })
       waitingOnQueue.onIdle()
-        .then(() => db.schema.hasColumn(self.name, column.name))
+        .then(async () => self.hasColumn(self.name, column.name))
         .then((hasColumn) => {
           return db.schema.alterTable(self.name, (table) => {
             let alterations = []
