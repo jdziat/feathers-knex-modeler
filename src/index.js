@@ -206,8 +206,8 @@ class DefaultModel extends EventEmitter {
     const self = this
     const db = self.db
     tableName = tableName || self.name
-    let hasColumn = await self.hasTable(tableName)
-    if (hasColumn === false) {
+    let hasTable = await self.hasTable(tableName)
+    if (hasTable === false) {
       return db.schema.createTable(self.name, function () {
         return true
       })
