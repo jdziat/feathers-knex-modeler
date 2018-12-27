@@ -66,21 +66,30 @@ class DefaultModel extends EventEmitter {
   emit (message) {
     super.emit('message', message)
   }
-  async hasColumn (tableName, columnName) {
+  async hasColumn (tableName, columnName, retries = 0) {
     const self = this
-    const db = self.db
-    tableName = tableName || self.name
-    let col
-    if (!_.isUndefined(columnName.name)) {
-      col = columnName.name
-    } else {
-      col = columnName
+    try {
+      const db = self.db
+      tableName = tableName || self.name
+      let col
+      if (!_.isUndefined(columnName.name)) {
+        col = columnName.name
+      } else {
+        col = columnName
+      }
+      return db.schema.hasColumn(tableName, col)
+    } catch (err) {
+      retries++
+      if (retries > 5) {
+        throw err
+      } else {
+        self.hasColumn(tableName, columnName, retries)
+      }
     }
-    return db.schema.hasColumn(tableName, col)
   }
   async waitForColumn (tableName, columnName) {
     const self = this
-    await pWaitFor(() => self.hasColumn(tableName, columnName))
+    await pWaitFor(async () => self.hasColumn(tableName, columnName))
   }
   alterColumn (column, option) {
     return new Promise((resolve, reject) => {
