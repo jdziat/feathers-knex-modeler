@@ -68,8 +68,9 @@ class DefaultModel extends EventEmitter {
   }
   async hasColumn (tableName, columnName, retries = 0) {
     const self = this
+    const db = self.db
+    self.debug(`Checking for column: ${columnName} in table: ${tableName}`)
     try {
-      const db = self.db
       tableName = tableName || self.name
       let col
       if (!_.isUndefined(columnName.name)) {
@@ -158,54 +159,61 @@ class DefaultModel extends EventEmitter {
         })
     })
   }
-  createColumn (column) {
+  async createColumn (column) {
+    const self = this
+    column.options = column.options || []
+    let waitingOnQueue = new PQueue({ concurrency: 1 })
+    _.forEach(column.options, (columnOption) => {
+      if (columnOption.type === 'references') {
+        let splitArray = columnOption.argument.split('.')
+        let dependTable = splitArray[0]
+        let dependColumn = splitArray[1]
+        waitingOnQueue.add(() => self.waitForTableColumn(dependTable, dependColumn))
+      }
+    })
+    await waitingOnQueue.onIdle()
+    self.debug(`All dependencies found`)
+    let hasColumn = await self.hasColumn(self.name, column.name)
+    self.debug(`Altering table`)
+    await self.alterTable(hasColumn, column)
+    self.debug(`Finished altering table`)
+  }
+  alterTable (hasColumn, column) {
     return new Promise((resolve, reject) => {
       const self = this
       const db = self.db
-      column.options = column.options || []
-      let waitingOnQueue = new PQueue({ concurrency: 1 })
-      _.forEach(column.options, (columnOption) => {
-        if (columnOption.type === 'references') {
-          let splitArray = columnOption.argument.split('.')
-          let dependTable = splitArray[0]
-          let dependColumn = splitArray[1]
-          waitingOnQueue.add(() => self.waitForTableColumn(dependTable, dependColumn))
+      db.schema.alterTable(self.name, (table) => {
+        let alterations = []
+        if (hasColumn === false) {
+          table[column.type](column.name)
+          return resolve(self.alterTable(true, column))
+        } else {
+          for (let optionIndex = 0; optionIndex < column.options.length; optionIndex++) {
+            alterations.push(self.alterColumn(column, column.options[optionIndex]))
+          }
+          return Promise.all(alterations)
         }
       })
-      waitingOnQueue.onIdle()
-        .then(async () => self.hasColumn(self.name, column.name))
-        .then((hasColumn) => {
-          return db.schema.alterTable(self.name, (table) => {
-            let alterations = []
-            if (hasColumn === false) {
-              table[column.type](column.name)
-            }
-
-            for (let optionIndex = 0; optionIndex < column.options.length; optionIndex++) {
-              alterations.push(self.alterColumn(column, column.options[optionIndex]))
-            }
-            return Promise.all(alterations)
-          })
-        })
         .then(() => resolve())
-        .catch((e) => {
-          return reject(e)
-        })
+        .catch((err) => reject(err))
     })
   }
   async createColumns () {
     const self = this
     const columns = self.columns
+    let columnsBeingCreated = []
     for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
       let column = columns[columnIndex]
-      self.debug(`Creating table: ${self.name}, column: ${column.name}`)
-      await self.createColumn(column)
+      self.debug(`Creating Column: ${column.name}`)
+      columnsBeingCreated.push(self.createColumn(column))
     }
+    return Promise.all(columnsBeingCreated)
   }
   async createTable (tableName) {
     const self = this
     const db = self.db
     tableName = tableName || self.name
+    self.debug(`Creating table: ${tableName}`)
     let hasTable = await self.hasTable(tableName)
     if (hasTable === false) {
       return db.schema.createTable(self.name, function () {
@@ -222,10 +230,12 @@ class DefaultModel extends EventEmitter {
   }
   async waitForTables () {
     const self = this
+    let tablesBeingCreated = []
     for (let dependsIndex = 0; dependsIndex < self.depends.length; dependsIndex++) {
       let dependedOnTableName = self.depends[dependsIndex]
-      await self.waitForTable(dependedOnTableName)
+      tablesBeingCreated.push(self.waitForTable(dependedOnTableName))
     }
+    await Promise.all(tablesBeingCreated)
     return true
   }
   async waitForTableColumn (tableName, columnName) {
@@ -239,7 +249,8 @@ class DefaultModel extends EventEmitter {
   async hasTable (tableName) {
     const self = this
     const db = self.db
-    return db.schema.hasTable(tableName)
+    let exists = await db.schema.hasTable(tableName)
+    return exists
   }
   async hasTables () {
     const self = this

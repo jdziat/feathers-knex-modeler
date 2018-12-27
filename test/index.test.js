@@ -29,7 +29,8 @@ describe('Feathers-Knex-Modeller', () => {
       it('Should wait for table and column to exist if it references it.', async function () {
         // await Promise.all([modelOne.init(), modelTwo.init()])
         await Promise.all([modelTwo.init(), modelOne.init()])
-        let hasTable = await db.schema.hasTable('test')
+        let tableOne = await modelOne.hasTable('test')
+        let hasTable = tableOne
         expect(hasTable).to.equal(true)
       })
       it('Has the table(s) after init', async function () {
