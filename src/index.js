@@ -63,8 +63,12 @@ class DefaultModel extends EventEmitter {
     }
     return db
   }
-  emit (message) {
-    super.emit('message', message)
+  emit (...args) {
+    if (args.length === 1) {
+      super.emit('message', args[0])
+    } else {
+      super.emit(...args)
+    }
   }
   async hasColumn (tableName, columnName, retries = 0) {
     const self = this
@@ -194,15 +198,19 @@ class DefaultModel extends EventEmitter {
     }
   }
   async createColumns () {
-    const self = this
-    const columns = self.columns
-    let columnsBeingCreated = []
-    for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
-      let column = columns[columnIndex]
-      self.debug(`Creating Column: ${column.name}`)
-      columnsBeingCreated.push(self.createColumn(column))
+    try {
+      const self = this
+      const columns = self.columns
+      let columnsBeingCreated = []
+      for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
+        let column = columns[columnIndex]
+        self.debug(`Creating Column: ${column.name}`)
+        columnsBeingCreated.push(self.createColumn(column))
+      }
+      await Promise.all(columnsBeingCreated)
+    } catch (err) {
+      throw new Error('Failed creating columns', err)
     }
-    return Promise.all(columnsBeingCreated)
   }
   async createTable (tableName) {
     const self = this
