@@ -90,16 +90,16 @@ class DefaultModel extends EventEmitter {
   }
   async waitForColumn (tableName, columnName) {
     const self = this
-    await pWaitFor(async () => self.hasColumn(tableName, columnName))
+    return pWaitFor(async () => self.hasColumn(tableName, columnName))
   }
-  alterColumn (column, option) {
-    return new Promise((resolve, reject) => {
-      const self = this
-      const db = self.db
-      let errored = false
-      self.debug(`Modifying column: ${column.name}`)
-      self.debug(option)
-      db.schema.alterTable(self.name, (table) => {
+  async alterColumn (column, option) {
+    const self = this
+    const db = self.db
+    let errored = false
+    self.debug(`Modifying column: ${column.name}`)
+    self.debug(option)
+    try {
+      await db.schema.alterTable(self.name, (table) => {
         let alterCommand
         let typeOfColumn = option.type
         let argument = option.argument
@@ -111,7 +111,6 @@ class DefaultModel extends EventEmitter {
         } else {
           columnToAlter = table[column.type](column.name)
         }
-
         switch (typeOfColumn) {
           case 'notNullable': {
             alterCommand = columnToAlter.notNullable()
@@ -141,23 +140,20 @@ class DefaultModel extends EventEmitter {
             }
           }
         }
-        return alterCommand.alter()
+
+        alterCommand.alter()
       })
-        .catch((err) => {
-          let alreadyExists = (err.message.indexOf('already exists') !== -1)
-          if (alreadyExists === false) {
-            errored = err
-          }
-          return err
-        })
-        .then(() => {
-          if (errored === false) {
-            return resolve()
-          } else {
-            return reject(errored)
-          }
-        })
-    })
+    } catch (err) {
+      let alreadyExists = (err.message.indexOf('already exists') !== -1)
+      if (alreadyExists === false) {
+        errored = err
+      }
+    }
+    if (errored === false) {
+      return true
+    } else {
+      throw errored
+    }
   }
   async createColumn (column) {
     const self = this
@@ -178,25 +174,24 @@ class DefaultModel extends EventEmitter {
     await self.alterTable(hasColumn, column)
     self.debug(`Finished altering table`)
   }
-  alterTable (hasColumn, column) {
-    return new Promise((resolve, reject) => {
-      const self = this
-      const db = self.db
-      db.schema.alterTable(self.name, (table) => {
-        let alterations = []
-        if (hasColumn === false) {
-          table[column.type](column.name)
-          return resolve(self.alterTable(true, column))
-        } else {
-          for (let optionIndex = 0; optionIndex < column.options.length; optionIndex++) {
-            alterations.push(self.alterColumn(column, column.options[optionIndex]))
-          }
-          return Promise.all(alterations)
+  async alterTable (hasColumn, column) {
+    const self = this
+    const db = self.db
+    let alterations = []
+    await db.schema.alterTable(self.name, (table) => {
+      if (hasColumn === false) {
+        table[column.type](column.name)
+      } else {
+        for (let optionIndex = 0; optionIndex < column.options.length; optionIndex++) {
+          alterations.push(self.alterColumn(column, column.options[optionIndex]))
         }
-      })
-        .then(() => resolve())
-        .catch((err) => reject(err))
+      }
     })
+    if (hasColumn === false) {
+      return self.alterTable(true, column)
+    } else {
+      return Promise.all(alterations)
+    }
   }
   async createColumns () {
     const self = this
@@ -254,11 +249,12 @@ class DefaultModel extends EventEmitter {
   }
   async hasTables () {
     const self = this
+    let dependedOnTables = []
     for (let dependsIndex = 0; dependsIndex < self.depends.length; dependsIndex++) {
       let dependedOnTableName = self.depends[dependsIndex]
-      await self.hasTable(dependedOnTableName)
+      dependedOnTables.push(self.hasTable(dependedOnTableName))
     }
-    return true
+    return Promise.all(dependedOnTables)
   }
 }
 
