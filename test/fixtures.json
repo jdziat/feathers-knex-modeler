@@ -37,6 +37,12 @@
         "options": [{ "type": "notNullable" }]
       },
       {
+        "name": "random_text_array",
+        "specificType":true,
+        "type": "text[]",
+        "options": [{ "type": "notNullable" }]
+      },
+      {
         "name": "test_id",
         "type": "integer",
         "options": [{ "type": "references", "argument": "test.id" }]

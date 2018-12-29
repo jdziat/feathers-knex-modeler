@@ -184,8 +184,16 @@ class DefaultModel extends EventEmitter {
     let alterations = []
     await db.schema.alterTable(self.name, (table) => {
       if (hasColumn === false) {
-        table[column.type](column.name)
-      } else {
+        if (_.isArray(column.args) === true && _.isString(column.args) === false && _.isUndefined(column.specificType) === true) {
+          table[column.type](column.name, ...column.args)
+        } else if (_.isString(column.args) === true && _.isUndefined(column.specificType) === true) {
+          table[column.type](column.name, column.args)
+        } else if (_.isUndefined(column.specificType) === false && _.get(column, 'specificType') === true) {
+          table.specificType(column.name, column.type)
+        } else {
+          table[column.type](column.name)
+        }
+      } else if (_.isUndefined(column.specificType) === true || _.get(column, 'specificType') === false) {
         for (let optionIndex = 0; optionIndex < column.options.length; optionIndex++) {
           alterations.push(self.alterColumn(column, column.options[optionIndex]))
         }
