@@ -45,6 +45,23 @@ describe('Feathers-Knex-Modeller', () => {
         expect(hasTableOneColumnOne).to.equal(true)
         expect(hasTableTwoDependentColumn).to.equal(true)
       })
+      it('Specific type should create a column of the requested type', async function () {
+        let tableName = fixtures.data.specificType.textArray.table
+        let columnName = fixtures.data.specificType.textArray.name
+        let columnData = fixtures.data.specificType.textArray.data
+        await db(tableName).delete()
+        let dataToInsert = {
+          'name': 'name',
+          'schema_type': 'specificTypeTest',
+          'status': 'TBD',
+          'shared': true
+        }
+        dataToInsert[columnName] = columnData
+        await db.insert(dataToInsert).into(tableName)
+        let returnedData = (await db.select().from(tableName))[0]
+        expect(returnedData[columnName]).to.be.an('array')
+        expect(returnedData[columnName][0]).to.be.an('string')
+      })
     })
   })
 })
