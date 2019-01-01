@@ -40,7 +40,7 @@ const dependent = new Modeler({
     {
       'name': 'test_id',
       'type': 'integer',
-      'options': [{ 'type': 'references', 'argument': 'test.id' }]
+      'options': [{ 'type': 'references', 'argument': 'test.id' }, { 'type': 'onDelete', 'argument': 'CASCADE' }]
     },
     {
       'name': 'schema_type',
@@ -64,7 +64,10 @@ const dependent = new Modeler({
 testModel.init()
   .then((data) => dependent.init())
   .then(async (data) => {
-    await db.insert({ 'random_text_array': ['test', 'test', 'test2'], name: 'test', shared: true, status: 'test', schema_type: 'test' }).into('dependent')
+    await db.insert({ name: 'test1', shared: true, schema_type: 'something', status: 'pending' }).into('test')
+    let testId = (await db.select().first('id').from('test')).id
+
+    await db.insert({ 'random_text_array': ['test', 'test', 'test2'], test_id: testId, name: 'test', shared: true, status: 'test', schema_type: 'test' }).into('dependent')
     let result = await db.select().from('dependent')
     console.log(result)
   })

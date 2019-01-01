@@ -5,7 +5,7 @@ const pWaitFor = require('p-wait-for')
 const EventEmitter = require('events')
 const debug = require('debug')
 const PQueue = require('p-queue')
-class DefaultModel extends EventEmitter {
+class Model extends EventEmitter {
   constructor (options) {
     _.defaultsDeep(options, { name: '', depends: [], columns: [], db: {} })
     super(options)
@@ -52,6 +52,7 @@ class DefaultModel extends EventEmitter {
       self.debug(`Creating Columns for table: ${tableName}`)
       await self.createColumns()
     } catch (err) {
+      errors = err
       encounteredErrors = true
       self.emit({ source: 'initialization', type: 'error', value: err })
     }
@@ -96,25 +97,21 @@ class DefaultModel extends EventEmitter {
     const self = this
     return pWaitFor(async () => self.hasColumn(tableName, columnName))
   }
-  async alterColumn (column, option) {
+  async alterColumn (column, option, allOptions) {
     const self = this
     const db = self.db
     let errored = false
     self.debug(`Modifying column: ${column.name}`)
     self.debug(option)
+    let hasOnDelete = _.defaultTo(_.find(allOptions, { type: 'onDelete' }), false)
+    let hasOnUpdate = _.defaultTo(_.find(allOptions, { type: 'onUpdated' }), false)
     try {
       await db.schema.alterTable(self.name, (table) => {
         let alterCommand
         let typeOfColumn = option.type
         let argument = option.argument
-        let columnToAlter
-        if (_.isArray(column.args) === true && _.isString(column.args) === false) {
-          columnToAlter = table[column.type](column.name, ...column.args)
-        } else if (_.isUndefined(column.args) === true) {
-          columnToAlter = table[column.type](column.name, column.args)
-        } else {
-          columnToAlter = table[column.type](column.name)
-        }
+        let columnToAlter = self.tableColumnUtilityMethod(table, column)
+
         switch (typeOfColumn) {
           case 'notNullable': {
             alterCommand = columnToAlter.notNullable()
@@ -129,7 +126,18 @@ class DefaultModel extends EventEmitter {
             break
           }
           case 'references': {
-            alterCommand = columnToAlter.references(argument)
+            if (hasOnDelete !== false && hasOnUpdate !== false) {
+              alterCommand = columnToAlter.references(argument).onDelete(hasOnDelete.argument).onUpdate(hasOnUpdate.argument)
+            }
+            if (hasOnDelete !== false && hasOnUpdate === false) {
+              alterCommand = columnToAlter.references(argument).onDelete(hasOnDelete.argument)
+            }
+            if (hasOnUpdate !== false && hasOnDelete === false) {
+              alterCommand = columnToAlter.references(argument).onUpdate(hasOnUpdate.argument)
+            }
+            if (hasOnDelete === false || hasOnUpdate === false) {
+              alterCommand = columnToAlter.references(argument)
+            }
             break
           }
           case 'unique': {
@@ -144,8 +152,9 @@ class DefaultModel extends EventEmitter {
             }
           }
         }
-
-        alterCommand.alter()
+        if (_.isUndefined(alterCommand) === false) {
+          alterCommand.alter()
+        }
       })
     } catch (err) {
       let alreadyExists = (err.message.indexOf('already exists') !== -1)
@@ -178,24 +187,29 @@ class DefaultModel extends EventEmitter {
     await self.alterTable(hasColumn, column)
     self.debug(`Finished altering table`)
   }
+  tableColumnUtilityMethod (table, column) {
+    let columnToReturn
+    if (_.isArray(column.args) === true && _.isString(column.args) === false && _.isUndefined(column.specificType) === true) {
+      columnToReturn = table[column.type](column.name, ...column.args)
+    } else if (_.isString(column.args) === true && _.isUndefined(column.specificType) === true) {
+      columnToReturn = table[column.type](column.name, column.args)
+    } else if (_.isUndefined(column.specificType) === false && _.get(column, 'specificType') === true) {
+      columnToReturn = table.specificType(column.name, column.type)
+    } else {
+      columnToReturn = table[column.type](column.name)
+    }
+    return columnToReturn
+  }
   async alterTable (hasColumn, column) {
     const self = this
     const db = self.db
     let alterations = []
     await db.schema.alterTable(self.name, (table) => {
       if (hasColumn === false) {
-        if (_.isArray(column.args) === true && _.isString(column.args) === false && _.isUndefined(column.specificType) === true) {
-          table[column.type](column.name, ...column.args)
-        } else if (_.isString(column.args) === true && _.isUndefined(column.specificType) === true) {
-          table[column.type](column.name, column.args)
-        } else if (_.isUndefined(column.specificType) === false && _.get(column, 'specificType') === true) {
-          table.specificType(column.name, column.type)
-        } else {
-          table[column.type](column.name)
-        }
+        self.tableColumnUtilityMethod(table, column)
       } else if (_.isUndefined(column.specificType) === true || _.get(column, 'specificType') === false) {
         for (let optionIndex = 0; optionIndex < column.options.length; optionIndex++) {
-          alterations.push(self.alterColumn(column, column.options[optionIndex]))
+          alterations.push(self.alterColumn(column, column.options[optionIndex], column.options))
         }
       }
     })
@@ -213,10 +227,11 @@ class DefaultModel extends EventEmitter {
       for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
         let column = columns[columnIndex]
         self.debug(`Creating Column: ${column.name}`)
-        columnsBeingCreated.push(self.createColumn(column))
+        columnsBeingCreated.push(self.createColumn(column, columns))
       }
       await Promise.all(columnsBeingCreated)
     } catch (err) {
+      console.log(err)
       throw new Error('Failed creating columns', err)
     }
   }
@@ -274,4 +289,4 @@ class DefaultModel extends EventEmitter {
   }
 }
 
-module.exports = DefaultModel
+module.exports = Model
