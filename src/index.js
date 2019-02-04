@@ -97,6 +97,19 @@ class Model extends EventEmitter {
     const self = this
     return pWaitFor(async () => self.hasColumn(tableName, columnName))
   }
+  async dropKey (tableName, columnName) {
+    const self = this
+    let done = false
+    let columnInfo
+    console.log(tableName)
+    columnInfo = await self.db(tableName).columnInfo(columnName)
+    console.log(columnInfo)
+    await pWaitFor(() => {
+      return done
+    })
+    console.log(columnInfo)
+    return columnInfo
+  }
   async alterColumn (column, option, allOptions) {
     const self = this
     const db = self.db
@@ -108,7 +121,7 @@ class Model extends EventEmitter {
     self.debug(`Column: ${column.name}, has onDelete defined: ${hasOnDelete !== false}`)
     self.debug(`Column: ${column.name}, has onUpdated defined: ${hasOnUpdate !== false}`)
     try {
-      await db.schema.alterTable(self.name, (table) => {
+      await db.schema.alterTable(self.name, async (table) => {
         let alterCommand
         let typeOfColumn = option.type
         let argument = option.argument
@@ -127,22 +140,22 @@ class Model extends EventEmitter {
             alterCommand = columnToAlter.primary()
             break
           }
-          case 'references': {
+          case 'references' : {
             if (hasOnDelete !== false && hasOnUpdate !== false) {
               self.debug(`Column: ${column.name}, references onUpdate and onDelete`)
-              alterCommand = columnToAlter.foreign().references(argument).onDelete(hasOnDelete.argument).onUpdate(hasOnUpdate.argument)
+              columnToAlter.references(argument).onDelete(hasOnDelete.argument).onUpdate(hasOnUpdate.argument)
             }
             if (hasOnDelete !== false && hasOnUpdate === false) {
               self.debug(`Column: ${column.name}, references onDelete`)
-              alterCommand = columnToAlter.foreign().references(argument).onDelete(hasOnDelete.argument)
+              columnToAlter.references(argument).onDelete(hasOnDelete.argument)
             }
             if (hasOnUpdate !== false && hasOnDelete === false) {
               self.debug(`Column: ${column.name}, references onUpdate`)
-              alterCommand = columnToAlter.foreign().references(argument).onUpdate(hasOnUpdate.argument)
+              columnToAlter.references(argument).onUpdate(hasOnUpdate.argument)
             }
-            if (hasOnDelete === false || hasOnUpdate === false) {
+            if (hasOnDelete === false && hasOnUpdate === false) {
               self.debug(`Column: ${column.name}, references no onUpdate or onDelete`)
-              alterCommand = columnToAlter.references(argument)
+              columnToAlter.references(argument)
             }
             break
           }

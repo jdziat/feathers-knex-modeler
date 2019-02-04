@@ -54,7 +54,7 @@
       {
         "name": "test_id",
         "type": "integer",
-        "options": [{ "type": "foreign", "argument": "test.id" },{"type":"onDelete","argument":"CASCADE"}]
+        "options": [{ "type": "references", "argument": "test.id" },{"type":"onDelete","argument":"CASCADE"}]
       },
       {
         "name": "schema_type",
