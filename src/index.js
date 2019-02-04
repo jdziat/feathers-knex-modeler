@@ -130,15 +130,15 @@ class Model extends EventEmitter {
           case 'references': {
             if (hasOnDelete !== false && hasOnUpdate !== false) {
               self.debug(`Column: ${column.name}, references onUpdate and onDelete`)
-              alterCommand = columnToAlter.references(argument).onDelete(hasOnDelete.argument).onUpdate(hasOnUpdate.argument)
+              alterCommand = columnToAlter.foreign().references(argument).onDelete(hasOnDelete.argument).onUpdate(hasOnUpdate.argument)
             }
             if (hasOnDelete !== false && hasOnUpdate === false) {
               self.debug(`Column: ${column.name}, references onDelete`)
-              alterCommand = columnToAlter.references(argument).onDelete(hasOnDelete.argument)
+              alterCommand = columnToAlter.foreign().references(argument).onDelete(hasOnDelete.argument)
             }
             if (hasOnUpdate !== false && hasOnDelete === false) {
               self.debug(`Column: ${column.name}, references onUpdate`)
-              alterCommand = columnToAlter.references(argument).onUpdate(hasOnUpdate.argument)
+              alterCommand = columnToAlter.foreign().references(argument).onUpdate(hasOnUpdate.argument)
             }
             if (hasOnDelete === false || hasOnUpdate === false) {
               self.debug(`Column: ${column.name}, references no onUpdate or onDelete`)
