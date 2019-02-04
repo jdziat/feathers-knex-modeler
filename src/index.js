@@ -154,12 +154,13 @@ class Model extends EventEmitter {
           default: {
             if (_.isFunction(table[column.type](column.name)[typeOfColumn]) === true) {
               alterCommand = columnToAlter[typeOfColumn](argument)
-            } else {
+            } else if (typeOfColumn !== 'references') {
               self.debug(`Unable to find the function to perform the alter on the column: ${column.name}`)
             }
           }
         }
         if (_.isUndefined(alterCommand) === false) {
+          self.debug(`Performing alter command on ${column.name}, type of column: ${typeOfColumn}`)
           alterCommand.alter()
         }
       })
