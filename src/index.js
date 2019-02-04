@@ -105,6 +105,8 @@ class Model extends EventEmitter {
     self.debug(option)
     let hasOnDelete = _.defaultTo(_.find(allOptions, { type: 'onDelete' }), false)
     let hasOnUpdate = _.defaultTo(_.find(allOptions, { type: 'onUpdated' }), false)
+    self.debug(`Column: ${column.name}, has onDelete defined: ${hasOnDelete}`)
+    self.debug(`Column: ${column.name}, has onUpdated defined: ${hasOnUpdate}`)
     try {
       await db.schema.alterTable(self.name, (table) => {
         let alterCommand
@@ -127,20 +129,25 @@ class Model extends EventEmitter {
           }
           case 'references': {
             if (hasOnDelete !== false && hasOnUpdate !== false) {
+              self.debug(`Column: ${column.name}, references onUpdate and onDelete`)
               alterCommand = columnToAlter.references(argument).onDelete(hasOnDelete.argument).onUpdate(hasOnUpdate.argument)
             }
             if (hasOnDelete !== false && hasOnUpdate === false) {
+              self.debug(`Column: ${column.name}, references onDelete`)
               alterCommand = columnToAlter.references(argument).onDelete(hasOnDelete.argument)
             }
             if (hasOnUpdate !== false && hasOnDelete === false) {
+              self.debug(`Column: ${column.name}, references onUpdate`)
               alterCommand = columnToAlter.references(argument).onUpdate(hasOnUpdate.argument)
             }
             if (hasOnDelete === false || hasOnUpdate === false) {
+              self.debug(`Column: ${column.name}, standard references no onUpdate or onDelete`)
               alterCommand = columnToAlter.references(argument)
             }
             break
           }
           case 'unique': {
+            self.debug(`Column: ${column.name}, alter command unique`)
             alterCommand = columnToAlter.unique()
             break
           }
