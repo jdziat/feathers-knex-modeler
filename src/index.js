@@ -165,6 +165,7 @@ class Model extends EventEmitter {
         }
       })
     } catch (err) {
+      self.debug(err)
       let alreadyExists = (err.message.indexOf('already exists') !== -1)
       if (alreadyExists === false) {
         errored = err
