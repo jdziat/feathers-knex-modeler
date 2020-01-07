@@ -5,9 +5,10 @@ const pWaitFor = require('p-wait-for')
 const EventEmitter = require('events')
 const debug = require('debug')
 const { default: PQueue } = require('p-queue')
+const MAX_RETRIES = 5
 class Model extends EventEmitter {
   constructor (options) {
-    _.defaultsDeep(options, { name: '', depends: [], columns: [], db: {} })
+    _.defaultsDeep(options, { name: '', depends: [], columns: [], db: {}, retries: MAX_RETRIES })
     super(options)
     const self = this
     Object.defineProperty(self, '_', { enumerable: false, value: {} })
@@ -16,6 +17,7 @@ class Model extends EventEmitter {
     Object.defineProperty(self._, 'name', { enumerable: false, value: options.name })
     Object.defineProperty(self._, 'db', { enumerable: false, value: options.db })
     Object.defineProperty(self._, 'default', { enumerable: false, value: options.default })
+    Object.defineProperty(self._, 'retries', { enumerable: false, value: options.retries })
     const tableName = _.get(self, '_.name')
     self.debug = debug(`feathers-knex-modeler:${tableName}`)
     self.debug(`Finished construction of model for table: ${tableName}`)
@@ -41,31 +43,41 @@ class Model extends EventEmitter {
     return this._.name
   }
 
-  async init () {
+  async init (options, retries = 0) {
     const self = this
     const db = self.db
     const tableName = self.name
-    self.debug(`Starting initialization of model for table: ${tableName}`)
-    let encounteredErrors = false
-    let errors
     try {
-      self.emit({ source: 'initialization', type: 'database', value: { message: `Initializing database: ${self.name}. Waiting on dbs: ${self.depends.join(', ')}` } })
-      self.debug(`Waiting for dependent tables for table: ${tableName}`)
-      await self.waitForTables()
-      self.debug(`Creating table: ${tableName}`)
-      await self.createTable()
-      self.debug(`Creating Columns for table: ${tableName}`)
-      await self.createColumns()
+      self.debug(`Starting initialization of model for table: ${tableName}`)
+      let encounteredErrors = false
+      let errors
+      try {
+        self.emit({ source: 'initialization', type: 'database', value: { message: `Initializing database: ${self.name}. Waiting on dbs: ${self.depends.join(', ')}` } })
+        self.debug(`Waiting for dependent tables for table: ${tableName}`)
+        await self.waitForTables()
+        self.debug(`Creating table: ${tableName}`)
+        await self.createTable()
+        self.debug(`Creating Columns for table: ${tableName}`)
+        await self.createColumns()
+      } catch (err) {
+        errors = err
+        encounteredErrors = true
+        self.emit({ source: 'initialization', type: 'error', value: err })
+      }
+      if (encounteredErrors === true) {
+        self.debug(`Failed initialization of model for table: ${tableName}`)
+        throw new Error(errors)
+      } else {
+        self.debug(`Finished initialization of model for table: ${tableName}`)
+      }
     } catch (err) {
-      errors = err
-      encounteredErrors = true
-      self.emit({ source: 'initialization', type: 'error', value: err })
-    }
-    if (encounteredErrors === true) {
-      self.debug(`Failed initialization of model for table: ${tableName}`)
-      throw new Error(errors)
-    } else {
-      self.debug(`Finished initialization of model for table: ${tableName}`)
+      self.debug(err)
+      retries++
+      if (retries < self._.retries) {
+        return self.init(options, retries)
+      } else {
+        throw err
+      }
     }
     return db
   }
