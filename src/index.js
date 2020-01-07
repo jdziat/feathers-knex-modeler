@@ -4,7 +4,7 @@ const _ = require('lodash')
 const pWaitFor = require('p-wait-for')
 const EventEmitter = require('events')
 const debug = require('debug')
-const PQueue = require('p-queue')
+const { default: PQueue } = require('p-queue')
 class Model extends EventEmitter {
   constructor (options) {
     _.defaultsDeep(options, { name: '', depends: [], columns: [], db: {} })
@@ -16,7 +16,7 @@ class Model extends EventEmitter {
     Object.defineProperty(self._, 'name', { enumerable: false, value: options.name })
     Object.defineProperty(self._, 'db', { enumerable: false, value: options.db })
     Object.defineProperty(self._, 'default', { enumerable: false, value: options.default })
-    let tableName = _.get(self, '_.name')
+    const tableName = _.get(self, '_.name')
     self.debug = debug(`feathers-knex-modeler:${tableName}`)
     self.debug(`Finished construction of model for table: ${tableName}`)
   }
@@ -24,22 +24,27 @@ class Model extends EventEmitter {
   get columns () {
     return this._.columns
   }
+
   get db () {
     return this._.db
   }
+
   get default () {
     return this._.default
   }
+
   get depends () {
     return this._.depends
   }
+
   get name () {
     return this._.name
   }
+
   async init () {
     const self = this
     const db = self.db
-    let tableName = self.name
+    const tableName = self.name
     self.debug(`Starting initialization of model for table: ${tableName}`)
     let encounteredErrors = false
     let errors
@@ -64,6 +69,7 @@ class Model extends EventEmitter {
     }
     return db
   }
+
   emit (...args) {
     if (args.length === 1) {
       super.emit('message', args[0])
@@ -71,6 +77,7 @@ class Model extends EventEmitter {
       super.emit(...args)
     }
   }
+
   async hasColumn (tableName, columnName, retries = 0) {
     const self = this
     const db = self.db
@@ -93,39 +100,38 @@ class Model extends EventEmitter {
       }
     }
   }
+
   async waitForColumn (tableName, columnName) {
     const self = this
     return pWaitFor(async () => self.hasColumn(tableName, columnName))
   }
+
   async dropKey (tableName, columnName) {
     const self = this
-    let done = false
-    let columnInfo
-    console.log(tableName)
-    columnInfo = await self.db(tableName).columnInfo(columnName)
-    console.log(columnInfo)
+    const done = false
+    const columnInfo = await self.db(tableName).columnInfo(columnName)
     await pWaitFor(() => {
       return done
     })
-    console.log(columnInfo)
     return columnInfo
   }
+
   async alterColumn (column, option, allOptions) {
     const self = this
     const db = self.db
     let errored = false
     self.debug(`Modifying column: ${column.name}`)
     self.debug(option)
-    let hasOnDelete = _.defaultTo(_.find(allOptions, { type: 'onDelete' }), false)
-    let hasOnUpdate = _.defaultTo(_.find(allOptions, { type: 'onUpdated' }), false)
+    const hasOnDelete = _.defaultTo(_.find(allOptions, { type: 'onDelete' }), false)
+    const hasOnUpdate = _.defaultTo(_.find(allOptions, { type: 'onUpdated' }), false)
     self.debug(`Column: ${column.name}, has onDelete defined: ${hasOnDelete !== false}`)
     self.debug(`Column: ${column.name}, has onUpdated defined: ${hasOnUpdate !== false}`)
     try {
       await db.schema.alterTable(self.name, async (table) => {
         let alterCommand
-        let typeOfColumn = option.type
-        let argument = option.argument
-        let columnToAlter = self.tableColumnUtilityMethod(table, column)
+        const typeOfColumn = option.type
+        const argument = option.argument
+        const columnToAlter = self.tableColumnUtilityMethod(table, column)
 
         switch (typeOfColumn) {
           case 'notNullable': {
@@ -179,7 +185,7 @@ class Model extends EventEmitter {
       })
     } catch (err) {
       self.debug(err)
-      let alreadyExists = (err.message.indexOf('already exists') !== -1)
+      const alreadyExists = (err.message.indexOf('already exists') !== -1)
       if (alreadyExists === false) {
         errored = err
       }
@@ -190,25 +196,27 @@ class Model extends EventEmitter {
       throw errored
     }
   }
+
   async createColumn (column) {
     const self = this
     column.options = column.options || []
-    let waitingOnQueue = new PQueue({ concurrency: 1 })
+    const waitingOnQueue = new PQueue({ concurrency: 1 })
     _.forEach(column.options, (columnOption) => {
       if (columnOption.type === 'references') {
-        let splitArray = columnOption.argument.split('.')
-        let dependTable = splitArray[0]
-        let dependColumn = splitArray[1]
+        const splitArray = columnOption.argument.split('.')
+        const dependTable = splitArray[0]
+        const dependColumn = splitArray[1]
         waitingOnQueue.add(() => self.waitForTableColumn(dependTable, dependColumn))
       }
     })
     await waitingOnQueue.onIdle()
-    self.debug(`All dependencies found`)
-    let hasColumn = await self.hasColumn(self.name, column.name)
-    self.debug(`Altering table`)
+    self.debug('All dependencies found')
+    const hasColumn = await self.hasColumn(self.name, column.name)
+    self.debug('Altering table')
     await self.alterTable(hasColumn, column)
-    self.debug(`Finished altering table`)
+    self.debug('Finished altering table')
   }
+
   tableColumnUtilityMethod (table, column) {
     let columnToReturn
     if (_.isArray(column.args) === true && _.isString(column.args) === false && _.isUndefined(column.specificType) === true) {
@@ -222,10 +230,11 @@ class Model extends EventEmitter {
     }
     return columnToReturn
   }
+
   async alterTable (hasColumn, column) {
     const self = this
     const db = self.db
-    let alterations = []
+    const alterations = []
     await db.schema.alterTable(self.name, (table) => {
       if (hasColumn === false) {
         self.tableColumnUtilityMethod(table, column)
@@ -241,13 +250,14 @@ class Model extends EventEmitter {
       return Promise.all(alterations)
     }
   }
+
   async createColumns () {
     try {
       const self = this
       const columns = self.columns
-      let columnsBeingCreated = []
+      const columnsBeingCreated = []
       for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
-        let column = columns[columnIndex]
+        const column = columns[columnIndex]
         self.debug(`Creating Column: ${column.name}`)
         columnsBeingCreated.push(self.createColumn(column, columns))
       }
@@ -257,12 +267,13 @@ class Model extends EventEmitter {
       throw new Error('Failed creating columns', err)
     }
   }
+
   async createTable (tableName) {
     const self = this
     const db = self.db
     tableName = tableName || self.name
     self.debug(`Creating table: ${tableName}`)
-    let hasTable = await self.hasTable(tableName)
+    const hasTable = await self.hasTable(tableName)
     if (hasTable === false) {
       return db.schema.createTable(self.name, function () {
         return true
@@ -271,21 +282,24 @@ class Model extends EventEmitter {
       return false
     }
   }
+
   async waitForTable (tableName) {
     const self = this
     await pWaitFor(async () => self.hasTable(tableName))
     return self.hasTable(tableName)
   }
+
   async waitForTables () {
     const self = this
-    let tablesBeingCreated = []
+    const tablesBeingCreated = []
     for (let dependsIndex = 0; dependsIndex < self.depends.length; dependsIndex++) {
-      let dependedOnTableName = self.depends[dependsIndex]
+      const dependedOnTableName = self.depends[dependsIndex]
       tablesBeingCreated.push(self.waitForTable(dependedOnTableName))
     }
     await Promise.all(tablesBeingCreated)
     return true
   }
+
   async waitForTableColumn (tableName, columnName) {
     const self = this
     self.debug(`Waiting for table: ${tableName}`)
@@ -294,17 +308,19 @@ class Model extends EventEmitter {
     await self.waitForColumn(tableName, columnName)
     return true
   }
+
   async hasTable (tableName) {
     const self = this
     const db = self.db
-    let exists = await db.schema.hasTable(tableName)
+    const exists = await db.schema.hasTable(tableName)
     return exists
   }
+
   async hasTables () {
     const self = this
-    let dependedOnTables = []
+    const dependedOnTables = []
     for (let dependsIndex = 0; dependsIndex < self.depends.length; dependsIndex++) {
-      let dependedOnTableName = self.depends[dependsIndex]
+      const dependedOnTableName = self.depends[dependsIndex]
       dependedOnTables.push(self.hasTable(dependedOnTableName))
     }
     return Promise.all(dependedOnTables)

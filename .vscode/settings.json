@@ -1,0 +1,12 @@
+{
+    "standard.enable": true,
+    "standard.autoFixOnSave": true,
+    "vetur.format.enable": false,
+    "javascript.validate.enable": false,
+    "eslint.autoFixOnSave": false,
+    "javascript.format.enable": false,
+    "prettier.eslintIntegration": false,
+    "eslint.enable": false,
+    "editor.formatOnSave": false
+  }
+  
