@@ -106,9 +106,9 @@ class Model extends EventEmitter {
     } catch (err) {
       retries++
       if (retries > 5) {
-        throw err
+        throw new Error(`hasColumn errored more than 5 times on table: ${tableName} column: ${columnName}.${err || ''}`)
       } else {
-        self.hasColumn(tableName, columnName, retries)
+        return self.hasColumn(tableName, columnName, retries)
       }
     }
   }
@@ -196,7 +196,7 @@ class Model extends EventEmitter {
         }
       })
     } catch (err) {
-      self.debug(err)
+      self.debug(`Alter column failed on column: ${column.name}. ${err || ''}`)
       const alreadyExists = (err.message.indexOf('already exists') !== -1)
       if (alreadyExists === false) {
         errored = err
@@ -275,7 +275,6 @@ class Model extends EventEmitter {
       }
       await Promise.all(columnsBeingCreated)
     } catch (err) {
-      console.log(err)
       throw new Error('Failed creating columns', err)
     }
   }
