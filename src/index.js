@@ -144,7 +144,7 @@ class Model extends EventEmitter {
         const typeOfColumn = option.type
         const argument = option.argument
         const columnToAlter = self.tableColumnUtilityMethod(table, column)
-
+        // console.log(table)
         switch (typeOfColumn) {
           case 'notNullable': {
             alterCommand = columnToAlter.notNullable()
@@ -159,22 +159,38 @@ class Model extends EventEmitter {
             break
           }
           case 'references' : {
+            const referenceArray =  argument.split('.')
+            const referenceTable =referenceArray[0]
+            const referenceColumn =referenceArray[1]
+            const constraintName = `${self.name}_${referenceTable}_${referenceColumn}`
+  try{
+            
+            debug(`Table: ${self.name} Constraint name: ${constraintName}`)
+            const alterTableRaw = `alter table "${self.name}" add constraint "${constraintName}" foreign key ("${column.name}") references "${referenceTable}" ("${referenceColumn}")`
+            debug(`Table: ${self.name} constraint creation: ${alterTableRaw}`)
+            await db.raw(alterTableRaw)
+            await columnToAlter.references(referenceColumn).on(referenceTable)
+          }catch(err){
+            const errorMessage = _.defaultTo(_.get(err,'message'),'')
+            if(errorMessage.indexOf('already exists')!==-1){
+            debug(`Failed to create constraint because it already exists. ${err || ''}`)
+            }else{
+              throw new Error(`Failed to create constraint. ${err||''}`)
+            }
+          }
             if (hasOnDelete !== false && hasOnUpdate !== false) {
               self.debug(`Column: ${column.name}, references onUpdate and onDelete`)
-              columnToAlter.references(argument).onDelete(hasOnDelete.argument).onUpdate(hasOnUpdate.argument)
+              columnToAlter.onDelete(hasOnDelete.argument).onUpdate(hasOnUpdate.argument)
             }
             if (hasOnDelete !== false && hasOnUpdate === false) {
               self.debug(`Column: ${column.name}, references onDelete`)
-              columnToAlter.references(argument).onDelete(hasOnDelete.argument)
+              columnToAlter.onDelete(hasOnDelete.argument)
             }
             if (hasOnUpdate !== false && hasOnDelete === false) {
               self.debug(`Column: ${column.name}, references onUpdate`)
-              columnToAlter.references(argument).onUpdate(hasOnUpdate.argument)
+              columnToAlter.onUpdate(hasOnUpdate.argument)
             }
-            if (hasOnDelete === false && hasOnUpdate === false) {
-              self.debug(`Column: ${column.name}, references no onUpdate or onDelete`)
-              columnToAlter.references(argument)
-            }
+          
             break
           }
           case 'unique': {
