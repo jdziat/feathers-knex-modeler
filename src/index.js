@@ -148,22 +148,10 @@ class Model extends EventEmitter {
     try {
       await db.schema.alterTable(self.name, async (table) => {
         let alterCommand
-        const typeOfColumn = option.type
+        const columnOptionType = option.type
         const argument = option.argument
         const columnToAlter = self.tableColumnUtilityMethod(table, column)
-        switch (typeOfColumn) {
-          case 'notNullable': {
-            alterCommand = columnToAlter.notNullable()
-            break
-          }
-          case 'nullable': {
-            alterCommand = columnToAlter.nullable()
-            break
-          }
-          case 'primary': {
-            alterCommand = columnToAlter.primary()
-            break
-          }
+        switch (columnOptionType) {
           case 'references' : {
             const referenceArray = argument.split('.')
             const referenceTable = referenceArray[0]
@@ -189,24 +177,20 @@ class Model extends EventEmitter {
                 throw new Error(`Failed to create constraint. ${err || ''}`)
               }
             }
-
-            break
-          }
-          case 'unique': {
-            self.debug(`Column: ${column.name}, alter command unique`)
-            alterCommand = columnToAlter.unique()
             break
           }
           default: {
-            if (_.isFunction(table[column.type](column.name)[typeOfColumn]) === true) {
-              alterCommand = columnToAlter[typeOfColumn](argument)
-            } else if (typeOfColumn !== 'references') {
+            if (_.isFunction(table[column.type](column.name)[columnOptionType]) === true) {
+              alterCommand = columnToAlter[columnOptionType](argument)
+            } else if (_.isFunction(columnToAlter[columnOptionType]) === true) {
+              alterCommand = columnToAlter[columnOptionType](argument)
+            } else if (columnOptionType !== 'references') {
               self.debug(`Unable to find the function to perform the alter on the column: ${column.name}`)
             }
           }
         }
         if (_.isUndefined(alterCommand) === false) {
-          self.debug(`Performing alter command on ${column.name}, type of column: ${typeOfColumn}`)
+          self.debug(`Performing alter command on ${column.name}, type of column: ${columnOptionType}`)
           alterCommand.alter()
         }
       })
