@@ -32,6 +32,11 @@ const dependent = new Modeler({
       options: [{ type: 'notNullable' }]
     },
     {
+      name: 'switch',
+      type: 'bool',
+      options: [{ type: 'defaultTo', argument: false }]
+    },
+    {
       name: 'random_text_array',
       specificType: true,
       type: 'text[]',
