@@ -8,19 +8,36 @@ const { default: PQueue } = require('p-queue')
 const MAX_RETRIES = 5
 class Model extends EventEmitter {
   constructor (options) {
-    _.defaultsDeep(options, { name: '', depends: [], columns: [], db: {}, retries: MAX_RETRIES })
+    _.defaults(options, { name: '', depends: [], columns: [], db: {}, retries: MAX_RETRIES })
     super(options)
     const self = this
+
     Object.defineProperty(self, '_', { enumerable: false, value: {} })
-    Object.defineProperty(self._, 'depends', { enumerable: false, value: options.depends })
-    Object.defineProperty(self._, 'columns', { enumerable: false, value: options.columns })
-    Object.defineProperty(self._, 'name', { enumerable: false, value: options.name })
-    Object.defineProperty(self._, 'db', { enumerable: false, value: options.db })
-    Object.defineProperty(self._, 'default', { enumerable: false, value: options.default })
-    Object.defineProperty(self._, 'retries', { enumerable: false, value: options.retries })
-    const tableName = _.get(self, '_.name')
-    self.debug = debug(`feathers-knex-modeler:${tableName}`)
-    self.debug(`Finished construction of model for table: ${tableName}`)
+    _.set(self, '_.depends', _.defaultTo(_.get(options, 'depends'), []))
+    _.set(self, '_.columns', _.defaultTo(_.get(options, 'columns'), []))
+    _.set(self, '_.name', _.defaultTo(_.get(options, 'name'), ''))
+    _.set(self, '_.db', _.defaultTo(_.get(options, 'db'), false))
+    _.set(self, '_.default', _.defaultTo(_.get(options, 'default'), ''))
+    _.set(self, '_.retries', _.defaultTo(_.get(options, 'retries'), 5))
+
+    if (self._.name === '') {
+      throw new Error('No table name was provided.')
+    }
+    if (self._.columns.length === 0) {
+      throw new Error('No table columns present')
+    }
+    if (_.isArray(self._.columns) === false) {
+      throw new Error(`Expected columns to be an array. ${self._.columns}`)
+    }
+    _.forEach(self._.columns, (column) => {
+      column.type = _.toLower(column.type)
+      if (column.type === 'int') {
+        column.type = 'integer'
+      }
+      return column
+    })
+    self.debug = debug(`feathers-knex-modeler:${self._.name}`)
+    self.debug(`Finished construction of model for table: ${self._.name}`)
   }
 
   get columns () {
@@ -47,12 +64,11 @@ class Model extends EventEmitter {
     const self = this
     const db = self.db
     const tableName = self.name
+    const errors = []
     try {
       self.debug(`Starting initialization of model for table: ${tableName}`)
-      let encounteredErrors = false
-      let errors
       try {
-        self.emit({ source: 'initialization', type: 'database', value: { message: `Initializing database: ${self.name}. Waiting on dbs: ${self.depends.join(', ')}` } })
+        self.emit('init', { source: 'initialization', type: 'database', value: { message: `Initializing database: ${self.name}. Waiting on dbs: ${self.depends.join(', ')}` } })
         self.debug(`Waiting for dependent tables for table: ${tableName}`)
         await self.waitForTables()
         self.debug(`Creating table: ${tableName}`)
@@ -60,34 +76,25 @@ class Model extends EventEmitter {
         self.debug(`Creating Columns for table: ${tableName}`)
         await self.createColumns()
       } catch (err) {
-        errors = err
-        encounteredErrors = true
-        self.emit({ source: 'initialization', type: 'error', value: err })
+        errors.push(err)
+        self.emit('initialization', { source: 'initialization', message: `Encountered error during the initalization process. Table: ${tableName}. ${err || ''}`, error: err })
       }
-      if (encounteredErrors === true) {
-        self.debug(`Failed initialization of model for table: ${tableName}`)
-        throw new Error(errors)
+      if (errors.length > 0) {
+        self.debug(`Failed initialization of model for table: ${tableName}. ${errors || ''}`)
+        throw new Error(`Failed initialization of model for table: ${tableName}. ${errors || ''}`)
       } else {
         self.debug(`Finished initialization of model for table: ${tableName}`)
       }
     } catch (err) {
-      self.debug(err)
+      self.debug(`Failed during the initialization process retry: ${retries}. ${err || ''}`)
       retries++
       if (retries < self._.retries) {
         return self.init(options, retries)
       } else {
-        throw err
+        throw new Error(`Failed to finish initialization after: ${retries} of ${self._.retries}. ${err || ''}`)
       }
     }
     return db
-  }
-
-  emit (...args) {
-    if (args.length === 1) {
-      super.emit('message', args[0])
-    } else {
-      super.emit(...args)
-    }
   }
 
   async hasColumn (tableName, columnName, retries = 0) {
@@ -158,31 +165,31 @@ class Model extends EventEmitter {
             break
           }
           case 'references' : {
-            const referenceArray =  argument.split('.')
-            const referenceTable =referenceArray[0]
-            const referenceColumn =referenceArray[1]
+            const referenceArray = argument.split('.')
+            const referenceTable = referenceArray[0]
+            const referenceColumn = referenceArray[1]
             const constraintName = `${self.name}_${referenceTable}_${referenceColumn}_fkey`
-            try{
-            debug(`Table: ${self.name} `)
-            let alterTableRaw = `alter table "${self.name}" add constraint ${constraintName} foreign key ("${column.name}") references "${referenceTable}" ("${referenceColumn}")`
-            if(hasOnDelete !==false){
-              alterTableRaw += ` ON DELETE ${hasOnDelete.argument}`
+            try {
+              debug(`Table: ${self.name} `)
+              let alterTableRaw = `alter table "${self.name}" add constraint ${constraintName} foreign key ("${column.name}") references "${referenceTable}" ("${referenceColumn}")`
+              if (hasOnDelete !== false) {
+                alterTableRaw += ` ON DELETE ${hasOnDelete.argument}`
+              }
+              if (hasOnUpdate !== false) {
+                alterTableRaw += ` ON UPDATE ${hasOnUpdate.argument}`
+              }
+              debug(`Table: ${self.name} constraint creation: ${alterTableRaw}`)
+              await db.raw(alterTableRaw)
+              await columnToAlter.references(referenceColumn).on(referenceTable)
+            } catch (err) {
+              const errorMessage = _.defaultTo(_.get(err, 'message'), '')
+              if (errorMessage.indexOf('already exists') !== -1) {
+                debug(`Failed to create constraint because it already exists. ${err || ''}`)
+              } else {
+                throw new Error(`Failed to create constraint. ${err || ''}`)
+              }
             }
-            if(hasOnUpdate !==false){
-              alterTableRaw += ` ON UPDATE ${hasOnUpdate.argument}`
-            }
-            debug(`Table: ${self.name} constraint creation: ${alterTableRaw}`)
-            await db.raw(alterTableRaw)
-            await columnToAlter.references(referenceColumn).on(referenceTable)
-          }catch(err){
-            const errorMessage = _.defaultTo(_.get(err,'message'),'')
-            if(errorMessage.indexOf('already exists')!==-1){
-            debug(`Failed to create constraint because it already exists. ${err || ''}`)
-            }else{
-              throw new Error(`Failed to create constraint. ${err||''}`)
-            }
-          }
-          
+
             break
           }
           case 'unique': {

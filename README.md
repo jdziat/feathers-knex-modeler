@@ -19,9 +19,11 @@ module.exports = function (app) {
   const Modeler = require('feathers-knex-modeler')
   const modeler = new Modeler({
     name: tableName,
-    depends: [],
+    depends: ['organizations'],
     columns:    [
     { name: 'id', type: 'increments' },
+    { name:'organization_id',type:'integer',options:[{ type: 'references', argument: 'organizations.id' }]} ,
+    { name: 'value', type: 'integer', options: [{ type: 'notNullable' }] },
     { name: 'name', type: 'text', options: [{ type: 'notNullable' }] },
     { name: 'schema_type', type: 'text', options: [{ type: 'notNullable' }] },
     { name: 'status', type: 'text', options: [{ type: 'notNullable' }] },
