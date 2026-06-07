@@ -1,240 +1,325 @@
-/* eslint-disable no-console */
 'use strict'
-const _ = require('lodash')
+
 const pWaitFor = require('p-wait-for')
+const { setTimeout: delay } = require('node:timers/promises')
 const EventEmitter = require('events')
 const debug = require('debug')
-const { default: PQueue } = require('p-queue')
+
 const MAX_RETRIES = 5
+const DEFAULT_POLL_INTERVAL = 250
+const DEFAULT_WAIT_TIMEOUT = 30000
+const REFERENTIAL_ACTIONS = new Set(['CASCADE', 'RESTRICT', 'NO ACTION', 'SET NULL', 'SET DEFAULT'])
+const IDENTIFIER_PATTERN = /^[A-Za-z_][A-Za-z0-9_$]*$/
+
+function messageOf (err) {
+  if (err instanceof Error) return err.message
+  if (typeof err === 'string') return err
+  try {
+    return JSON.stringify(err)
+  } catch (jsonErr) {
+    return String(err)
+  }
+}
+
+function isPlainObject (value) {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false
+  const prototype = Object.getPrototypeOf(value)
+  return prototype === Object.prototype || prototype === null
+}
+
+function assertIdentifier (value, label) {
+  if (typeof value !== 'string') {
+    throw new TypeError(`${label} must be a string identifier.`)
+  }
+  if (value.length < 1 || value.length > 63) {
+    throw new Error(`${label} must be between 1 and 63 characters.`)
+  }
+  if (!IDENTIFIER_PATTERN.test(value)) {
+    throw new Error(`${label} must match ${IDENTIFIER_PATTERN}.`)
+  }
+  return value
+}
+
+function parseReference (reference) {
+  let referenceTable
+  let referenceColumn
+
+  if (typeof reference === 'string') {
+    const segments = reference.split('.')
+    if (segments.length !== 2) {
+      throw new Error(`Expected references argument to be "table.column"; received "${reference}".`)
+    }
+    referenceTable = segments[0]
+    referenceColumn = segments[1]
+  } else if (isPlainObject(reference)) {
+    referenceTable = reference.table
+    referenceColumn = reference.column
+  } else {
+    throw new TypeError('Expected references argument to be "table.column" or { table, column }.')
+  }
+
+  assertIdentifier(referenceTable, 'Reference table')
+  assertIdentifier(referenceColumn, 'Reference column')
+  return { table: referenceTable, column: referenceColumn }
+}
+
+function resolveReferentialAction (action) {
+  if (typeof action !== 'string') {
+    throw new TypeError('Referential action must be a string.')
+  }
+
+  const normalized = action.trim().replace(/\s+/g, ' ').toUpperCase()
+  if (!REFERENTIAL_ACTIONS.has(normalized)) {
+    throw new Error(`Unsupported referential action: ${action}`)
+  }
+  return normalized
+}
+
+function cloneColumn (column) {
+  const cloned = { ...column }
+  if (Array.isArray(column.options)) {
+    cloned.options = column.options.map((option) => ({ ...option }))
+  }
+  if (Array.isArray(column.args)) {
+    cloned.args = [...column.args]
+  }
+  return cloned
+}
+
+async function retryWithBackoff (operation, options = {}) {
+  const attempts = options.attempts ?? MAX_RETRIES
+  const baseDelay = options.baseDelay ?? 50
+  const jitter = options.jitter ?? 10
+  let lastError
+
+  for (let attempt = 1; attempt <= attempts; attempt++) {
+    try {
+      return await operation(attempt)
+    } catch (err) {
+      lastError = err
+      if (attempt === attempts) break
+      const jitterDelay = jitter > 0 ? Math.floor(Math.random() * jitter) : 0
+      await delay((baseDelay * Math.pow(2, attempt - 1)) + jitterDelay)
+    }
+  }
+
+  throw lastError
+}
+
 class Model extends EventEmitter {
-  constructor (options) {
-    _.defaults(options, { name: '', depends: [], columns: [], db: {}, retries: MAX_RETRIES })
-    super(options)
-    const self = this
+  #name
+  #columns
+  #depends
+  #db
+  #retries
+  #pollInterval
+  #waitTimeout
 
-    Object.defineProperty(self, '_', { enumerable: false, value: {} })
-    _.set(self, '_.depends', _.defaultTo(_.get(options, 'depends'), []))
-    _.set(self, '_.columns', _.defaultTo(_.get(options, 'columns'), []))
-    _.set(self, '_.name', _.defaultTo(_.get(options, 'name'), ''))
-    _.set(self, '_.db', _.defaultTo(_.get(options, 'db'), false))
-    _.set(self, '_.default', _.defaultTo(_.get(options, 'default'), ''))
-    _.set(self, '_.retries', _.defaultTo(_.get(options, 'retries'), 5))
+  constructor (options = {}) {
+    super()
+    const columns = options?.columns ?? []
+    const name = options?.name ?? ''
+    const depends = options?.depends ?? []
+    const db = options?.db ?? false
+    const retries = options?.retries ?? MAX_RETRIES
+    const pollInterval = options?.pollInterval ?? DEFAULT_POLL_INTERVAL
+    const waitTimeout = options?.waitTimeout ?? DEFAULT_WAIT_TIMEOUT
 
-    if (self._.name === '') {
+    if (name === '') {
       throw new Error('No table name was provided.')
     }
-    if (self._.columns.length === 0) {
+    if (columns.length === 0) {
       throw new Error('No table columns present')
     }
-    if (_.isArray(self._.columns) === false) {
-      throw new Error(`Expected columns to be an array. ${self._.columns}`)
+    if (!Array.isArray(columns)) {
+      throw new Error(`Expected columns to be an array. ${columns}`)
     }
-    _.forEach(self._.columns, (column) => {
-      column.type = _.toLower(column.type)
-      if (column.type === 'int') {
-        column.type = 'integer'
+
+    assertIdentifier(name, 'Table name')
+    const normalizedColumns = columns.map((column) => {
+      const cloned = cloneColumn(column)
+      assertIdentifier(cloned.name, 'Column name')
+      cloned.type = String(cloned.type).toLowerCase()
+      if (cloned.type === 'int') {
+        cloned.type = 'integer'
       }
-      return column
+      if (!Array.isArray(cloned.options)) {
+        cloned.options = []
+      }
+      cloned.options.forEach((option) => {
+        if (option.type === 'references') parseReference(option.argument)
+        if (option.type === 'onDelete' || option.type === 'onUpdate') resolveReferentialAction(option.argument)
+      })
+      return cloned
     })
-    self.debug = debug(`feathers-knex-modeler:${self._.name}`)
-    self.debug(`Finished construction of model for table: ${self._.name}`)
+
+    this.#name = name
+    this.#columns = normalizedColumns
+    this.#depends = depends
+    this.#db = db
+    this.#retries = retries
+    this.#pollInterval = pollInterval
+    this.#waitTimeout = waitTimeout
+
+    this.debug = debug(`feathers-knex-modeler:${this.#name}`)
+    this.debug(`Finished construction of model for table: ${this.#name}`)
+  }
+
+  static assertIdentifier (value, label) {
+    return assertIdentifier(value, label)
+  }
+
+  static parseReference (reference) {
+    return parseReference(reference)
+  }
+
+  static resolveReferentialAction (action) {
+    return resolveReferentialAction(action)
+  }
+
+  static retryWithBackoff (operation, options) {
+    return retryWithBackoff(operation, options)
   }
 
   get columns () {
-    return this._.columns
+    return this.#columns
   }
 
   get db () {
-    return this._.db
-  }
-
-  get default () {
-    return this._.default
+    return this.#db
   }
 
   get depends () {
-    return this._.depends
+    return this.#depends
   }
 
   get name () {
-    return this._.name
+    return this.#name
   }
 
-  async init (options, retries = 0) {
-    const self = this
-    const db = self.db
-    const tableName = self.name
-    const errors = []
+  get pollInterval () {
+    return this.#pollInterval
+  }
+
+  get waitTimeout () {
+    return this.#waitTimeout
+  }
+
+  get waitOptions () {
+    return { interval: this.pollInterval, timeout: this.waitTimeout }
+  }
+
+  async init () {
+    const tableName = this.name
+
+    // Events are init:start, init:success, and init:error with a uniform table/message/error payload.
+    this.emit('init:start', { table: tableName, message: `Initializing table: ${tableName}`, error: null })
+    this.debug(`Starting initialization of model for table: ${tableName}`)
+
     try {
-      self.debug(`Starting initialization of model for table: ${tableName}`)
-      try {
-        self.emit('init', { source: 'initialization', type: 'database', value: { message: `Initializing database: ${self.name}. Waiting on dbs: ${self.depends.join(', ')}` } })
-        self.debug(`Waiting for dependent tables for table: ${tableName}`)
-        await self.waitForTables()
-        self.debug(`Creating table: ${tableName}`)
-        await self.createTable()
-        self.debug(`Creating Columns for table: ${tableName}`)
-        await self.createColumns()
-      } catch (err) {
-        errors.push(err)
-        self.emit('initialization', { source: 'initialization', message: `Encountered error during the initalization process. Table: ${tableName}. ${err || ''}`, error: err })
-      }
-      if (errors.length > 0) {
-        self.debug(`Failed initialization of model for table: ${tableName}. ${errors || ''}`)
-        throw new Error(`Failed initialization of model for table: ${tableName}. ${errors || ''}`)
-      } else {
-        self.debug(`Finished initialization of model for table: ${tableName}`)
-      }
+      await retryWithBackoff(async () => {
+        await this.waitForTables()
+        await this.createTable()
+        await this.createColumns()
+      }, {
+        attempts: this.#retries,
+        baseDelay: this.pollInterval,
+        jitter: Math.min(25, this.pollInterval)
+      })
+      this.emit('init:success', { table: tableName, message: `Initialized table: ${tableName}`, error: null })
+      this.debug(`Finished initialization of model for table: ${tableName}`)
+      return this.db
     } catch (err) {
-      self.debug(`Failed during the initialization process retry: ${retries}. ${err || ''}`)
-      retries++
-      if (retries < self._.retries) {
-        return self.init(options, retries)
-      } else {
-        throw new Error(`Failed to finish initialization after: ${retries} of ${self._.retries}. ${err || ''}`)
-      }
+      const message = `Failed to finish initialization for table: ${tableName} after ${this.#retries} attempts. ${messageOf(err)}`
+      this.emit('init:error', { table: tableName, message, error: err })
+      throw new Error(message, { cause: err })
     }
-    return db
   }
 
-  async hasColumn (tableName, columnName, retries = 0) {
-    const self = this
-    const db = self.db
-    self.debug(`Checking for column: ${columnName} in table: ${tableName}`)
-    try {
-      tableName = tableName || self.name
-      let col
-      if (!_.isUndefined(columnName.name)) {
-        col = columnName.name
-      } else {
-        col = columnName
-      }
-      return db.schema.hasColumn(tableName, col)
-    } catch (err) {
-      retries++
-      if (retries > 5) {
-        throw new Error(`hasColumn errored more than 5 times on table: ${tableName} column: ${columnName}.${err || ''}`)
-      } else {
-        return self.hasColumn(tableName, columnName, retries)
+  normalizeColumnName (columnName) {
+    if (columnName == null) {
+      throw new TypeError('columnName must be a string or an object with a name property.')
+    }
+    const normalized = typeof columnName === 'object' && columnName !== null && typeof columnName.name === 'string' ? columnName.name : columnName
+    if (typeof normalized !== 'string') {
+      throw new TypeError('columnName must be a string or an object with a name property.')
+    }
+    return normalized
+  }
+
+  async hasColumn (tableName, columnName) {
+    const db = this.db
+    const targetTable = tableName || this.name
+    const col = this.normalizeColumnName(columnName)
+
+    for (let attempt = 1; attempt <= this.#retries; attempt++) {
+      try {
+        this.debug(`Checking for column: ${col} in table: ${targetTable}`)
+        return await db.schema.hasColumn(targetTable, col)
+      } catch (err) {
+        if (attempt === this.#retries) {
+          throw new Error(`hasColumn errored ${this.#retries} times on table: ${targetTable} column: ${col}. ${messageOf(err)}`, { cause: err })
+        }
       }
     }
   }
 
   async waitForColumn (tableName, columnName) {
-    const self = this
-    return pWaitFor(async () => self.hasColumn(tableName, columnName))
-  }
-
-  async dropKey (tableName, columnName) {
-    const self = this
-    const done = false
-    const columnInfo = await self.db(tableName).columnInfo(columnName)
-    await pWaitFor(() => {
-      return done
-    })
-    return columnInfo
-  }
-
-  async alterColumn (column, option, allOptions) {
-    const self = this
-    const db = self.db
-    let errored = false
-    self.debug(`Modifying column: ${column.name}`)
-    self.debug(option)
-    const hasOnDelete = _.defaultTo(_.find(allOptions, { type: 'onDelete' }), false)
-    const hasOnUpdate = _.defaultTo(_.find(allOptions, { type: 'onUpdated' }), false)
-    self.debug(`Column: ${column.name}, has onDelete defined: ${hasOnDelete !== false}`)
-    self.debug(`Column: ${column.name}, has onUpdated defined: ${hasOnUpdate !== false}`)
+    const col = this.normalizeColumnName(columnName)
     try {
-      await db.schema.alterTable(self.name, async (table) => {
-        let alterCommand
-        const columnOptionType = option.type
-        const argument = option.argument
-        const columnToAlter = self.tableColumnUtilityMethod(table, column)
-        switch (columnOptionType) {
-          case 'references' : {
-            const referenceArray = argument.split('.')
-            const referenceTable = referenceArray[0]
-            const referenceColumn = referenceArray[1]
-            const constraintName = `${self.name}_${referenceTable}_${referenceColumn}_fkey`
-            try {
-              debug(`Table: ${self.name} `)
-              let alterTableRaw = `alter table "${self.name}" add constraint ${constraintName} foreign key ("${column.name}") references "${referenceTable}" ("${referenceColumn}")`
-              if (hasOnDelete !== false) {
-                alterTableRaw += ` ON DELETE ${hasOnDelete.argument}`
-              }
-              if (hasOnUpdate !== false) {
-                alterTableRaw += ` ON UPDATE ${hasOnUpdate.argument}`
-              }
-              debug(`Table: ${self.name} constraint creation: ${alterTableRaw}`)
-              await db.raw(alterTableRaw)
-              await columnToAlter.references(referenceColumn).on(referenceTable)
-            } catch (err) {
-              const errorMessage = _.defaultTo(_.get(err, 'message'), '')
-              if (errorMessage.indexOf('already exists') !== -1) {
-                debug(`Failed to create constraint because it already exists. ${err || ''}`)
-              } else {
-                throw new Error(`Failed to create constraint. ${err || ''}`)
-              }
-            }
-            break
-          }
-          default: {
-            if (_.isFunction(table[column.type](column.name)[columnOptionType]) === true) {
-              alterCommand = columnToAlter[columnOptionType](argument)
-            } else if (_.isFunction(columnToAlter[columnOptionType]) === true) {
-              alterCommand = columnToAlter[columnOptionType](argument)
-            } else if (columnOptionType !== 'references') {
-              self.debug(`Unable to find the function to perform the alter on the column: ${column.name}`)
-            }
-          }
+      await pWaitFor(async () => {
+        try {
+          return await this.hasColumn(tableName, col) === true
+        } catch (err) {
+          return false
         }
-        if (_.isUndefined(alterCommand) === false) {
-          self.debug(`Performing alter command on ${column.name}, type of column: ${columnOptionType}`)
-          alterCommand.alter()
-        }
-      })
-    } catch (err) {
-      self.debug(`Alter column failed on column: ${column.name}. ${err || ''}`)
-      const alreadyExists = (err.message.indexOf('already exists') !== -1)
-      if (alreadyExists === false) {
-        errored = err
-      }
-    }
-    if (errored === false) {
+      }, this.waitOptions)
       return true
-    } else {
-      throw errored
+    } catch (err) {
+      throw new Error(`Timed out after ${this.waitTimeout}ms waiting for column ${tableName}.${col}`, { cause: err })
     }
   }
 
-  async createColumn (column) {
-    const self = this
-    column.options = column.options || []
-    const waitingOnQueue = new PQueue({ concurrency: 1 })
-    _.forEach(column.options, (columnOption) => {
-      if (columnOption.type === 'references') {
-        const splitArray = columnOption.argument.split('.')
-        const dependTable = splitArray[0]
-        const dependColumn = splitArray[1]
-        waitingOnQueue.add(() => self.waitForTableColumn(dependTable, dependColumn))
-      }
-    })
-    await waitingOnQueue.onIdle()
-    self.debug('All dependencies found')
-    const hasColumn = await self.hasColumn(self.name, column.name)
-    self.debug('Altering table')
-    await self.alterTable(hasColumn, column)
-    self.debug('Finished altering table')
+  getColumnOption (column, type) {
+    return column.options.find((option) => option.type === type)
+  }
+
+  getReferenceOptions (column) {
+    const referenceOption = this.getColumnOption(column, 'references')
+    if (referenceOption === undefined) return null
+
+    const onDeleteOption = this.getColumnOption(column, 'onDelete')
+    const onUpdateOption = this.getColumnOption(column, 'onUpdate')
+    return {
+      reference: parseReference(referenceOption.argument),
+      onDelete: onDeleteOption ? resolveReferentialAction(onDeleteOption.argument) : null,
+      onUpdate: onUpdateOption ? resolveReferentialAction(onUpdateOption.argument) : null
+    }
+  }
+
+  applyColumnOption (table, columnToAlter, column, option) {
+    if (option.type === 'references' || option.type === 'onDelete' || option.type === 'onUpdate') {
+      return columnToAlter
+    }
+
+    if (typeof columnToAlter[option.type] === 'function') {
+      columnToAlter = option.argument === undefined
+        ? columnToAlter[option.type]()
+        : columnToAlter[option.type](option.argument)
+    } else {
+      this.debug(`Unable to find function ${option.type} for column: ${column.name}`)
+    }
+
+    return columnToAlter
   }
 
   tableColumnUtilityMethod (table, column) {
     let columnToReturn
-    if (_.isArray(column.args) === true && _.isString(column.args) === false && _.isUndefined(column.specificType) === true) {
+    if (Array.isArray(column.args) && column.specificType === undefined) {
       columnToReturn = table[column.type](column.name, ...column.args)
-    } else if (_.isString(column.args) === true && _.isUndefined(column.specificType) === true) {
+    } else if (typeof column.args === 'string' && column.specificType === undefined) {
       columnToReturn = table[column.type](column.name, column.args)
-    } else if (_.isUndefined(column.specificType) === false && _.get(column, 'specificType') === true) {
+    } else if (column.specificType !== undefined && column?.specificType === true) {
       columnToReturn = table.specificType(column.name, column.type)
     } else {
       columnToReturn = table[column.type](column.name)
@@ -242,98 +327,181 @@ class Model extends EventEmitter {
     return columnToReturn
   }
 
-  async alterTable (hasColumn, column) {
-    const self = this
-    const db = self.db
-    const alterations = []
-    await db.schema.alterTable(self.name, (table) => {
-      if (hasColumn === false) {
-        self.tableColumnUtilityMethod(table, column)
-      } else if (_.isUndefined(column.specificType) === true || _.get(column, 'specificType') === false) {
-        for (let optionIndex = 0; optionIndex < column.options.length; optionIndex++) {
-          alterations.push(self.alterColumn(column, column.options[optionIndex], column.options))
-        }
-      }
-    })
-    if (hasColumn === false) {
-      return self.alterTable(true, column)
-    } else {
-      return Promise.all(alterations)
+  applyColumnBody (table, column) {
+    let columnToAlter = this.tableColumnUtilityMethod(table, column)
+    for (let optionIndex = 0; optionIndex < column.options.length; optionIndex++) {
+      columnToAlter = this.applyColumnOption(table, columnToAlter, column, column.options[optionIndex])
+    }
+  }
+
+  async alterColumn (column, hasColumn) {
+    // Existing columns are left untouched. This tool creates tables and ADDS
+    // missing columns without dropping or re-altering what is already there.
+    // Re-running .alter() on a live column is unsafe and dialect-fragile — e.g.
+    // knex emits "drop not null" for a primary-key/serial column, which Postgres
+    // rejects ("column is in a primary key"). On a freshly created table every
+    // column already exists with its options applied, so this is also a no-op
+    // that avoids a redundant second ALTER round-trip per column. This single
+    // existing-column skip subsumes the former specificType and FK-only-options
+    // guards.
+    if (hasColumn === true) {
+      return true
+    }
+
+    const db = this.db
+    try {
+      await db.schema.alterTable(this.name, (table) => {
+        this.applyColumnBody(table, column)
+      })
+      return true
+    } catch (err) {
+      throw new Error(`Alter column failed on ${this.name}.${column.name}. ${messageOf(err)}`, { cause: err })
+    }
+  }
+
+  async waitForReference (column) {
+    const referenceOptions = this.getReferenceOptions(column)
+    if (referenceOptions === null) return
+    await this.waitForTableColumn(referenceOptions.reference.table, referenceOptions.reference.column)
+  }
+
+  async createColumn (column) {
+    try {
+      await this.waitForReference(column)
+      const hasColumn = await this.hasColumn(this.name, column.name)
+      await this.alterColumn(column, hasColumn)
+      await this.addForeignKey(column)
+      return true
+    } catch (err) {
+      throw new Error(`Failed creating column ${this.name}.${column.name}. ${messageOf(err)}`, { cause: err })
     }
   }
 
   async createColumns () {
     try {
-      const self = this
-      const columns = self.columns
-      const columnsBeingCreated = []
-      for (let columnIndex = 0; columnIndex < columns.length; columnIndex++) {
-        const column = columns[columnIndex]
-        self.debug(`Creating Column: ${column.name}`)
-        columnsBeingCreated.push(self.createColumn(column, columns))
+      for (let columnIndex = 0; columnIndex < this.columns.length; columnIndex++) {
+        const column = this.columns[columnIndex]
+        this.debug(`Creating Column: ${column.name}`)
+        await this.createColumn(column)
       }
-      await Promise.all(columnsBeingCreated)
+      return true
     } catch (err) {
-      throw new Error('Failed creating columns', err)
+      throw new Error(`Failed creating columns for table ${this.name}. ${messageOf(err)}`, { cause: err })
     }
   }
 
   async createTable (tableName) {
-    const self = this
-    const db = self.db
-    tableName = tableName || self.name
-    self.debug(`Creating table: ${tableName}`)
-    const hasTable = await self.hasTable(tableName)
-    if (hasTable === false) {
-      return db.schema.createTable(self.name, function () {
-        return true
+    const db = this.db
+    const targetTable = tableName || this.name
+    this.debug(`Creating table: ${targetTable}`)
+    const hasTable = await this.hasTable(targetTable)
+    if (hasTable === true) return false
+
+    try {
+      await db.schema.createTable(targetTable, (table) => {
+        for (let columnIndex = 0; columnIndex < this.columns.length; columnIndex++) {
+          this.applyColumnBody(table, this.columns[columnIndex])
+        }
       })
-    } else {
-      return false
+      return true
+    } catch (err) {
+      throw new Error(`Failed creating table ${targetTable}. ${messageOf(err)}`, { cause: err })
+    }
+  }
+
+  async hasForeignKey (column, referenceOptions) {
+    const db = this.db
+    if (typeof db !== 'function') return false
+
+    const rows = await db('information_schema.table_constraints as tc')
+      .join('information_schema.key_column_usage as kcu', function () {
+        this.on('tc.constraint_name', 'kcu.constraint_name')
+          .andOn('tc.table_schema', 'kcu.table_schema')
+          .andOn('tc.table_name', 'kcu.table_name')
+      })
+      .join('information_schema.constraint_column_usage as ccu', function () {
+        this.on('tc.constraint_name', 'ccu.constraint_name')
+          .andOn('tc.table_schema', 'ccu.table_schema')
+      })
+      .where({
+        'tc.constraint_type': 'FOREIGN KEY',
+        'tc.table_name': this.name,
+        'kcu.column_name': column.name,
+        'ccu.table_name': referenceOptions.reference.table,
+        'ccu.column_name': referenceOptions.reference.column
+      })
+      .first('tc.constraint_name')
+
+    return rows !== undefined
+  }
+
+  async addForeignKey (column) {
+    const db = this.db
+    const referenceOptions = this.getReferenceOptions(column)
+    if (referenceOptions === null) return false
+
+    try {
+      if (await this.hasForeignKey(column, referenceOptions) === true) return false
+      await db.schema.alterTable(this.name, (table) => {
+        const foreignKey = table.foreign(column.name)
+          .references(referenceOptions.reference.column)
+          .inTable(referenceOptions.reference.table)
+        if (referenceOptions.onDelete !== null) {
+          foreignKey.onDelete(referenceOptions.onDelete)
+        }
+        if (referenceOptions.onUpdate !== null) {
+          foreignKey.onUpdate(referenceOptions.onUpdate)
+        }
+      })
+      return true
+    } catch (err) {
+      throw new Error(`Failed creating foreign key for ${this.name}.${column.name}. ${messageOf(err)}`, { cause: err })
     }
   }
 
   async waitForTable (tableName) {
-    const self = this
-    await pWaitFor(async () => self.hasTable(tableName))
-    return self.hasTable(tableName)
+    try {
+      await pWaitFor(async () => {
+        try {
+          return await this.hasTable(tableName) === true
+        } catch (err) {
+          return false
+        }
+      }, this.waitOptions)
+      return true
+    } catch (err) {
+      throw new Error(`Timed out after ${this.waitTimeout}ms waiting for table ${tableName}`, { cause: err })
+    }
   }
 
   async waitForTables () {
-    const self = this
-    const tablesBeingCreated = []
-    for (let dependsIndex = 0; dependsIndex < self.depends.length; dependsIndex++) {
-      const dependedOnTableName = self.depends[dependsIndex]
-      tablesBeingCreated.push(self.waitForTable(dependedOnTableName))
+    for (let dependsIndex = 0; dependsIndex < this.depends.length; dependsIndex++) {
+      const dependedOnTableName = this.depends[dependsIndex]
+      await this.waitForTable(dependedOnTableName)
     }
-    await Promise.all(tablesBeingCreated)
     return true
   }
 
   async waitForTableColumn (tableName, columnName) {
-    const self = this
-    self.debug(`Waiting for table: ${tableName}`)
-    await self.waitForTable(tableName)
-    self.debug(`Waiting for Column: ${columnName}`)
-    await self.waitForColumn(tableName, columnName)
+    this.debug(`Waiting for table: ${tableName}`)
+    await this.waitForTable(tableName)
+    this.debug(`Waiting for Column: ${columnName}`)
+    await this.waitForColumn(tableName, columnName)
     return true
   }
 
   async hasTable (tableName) {
-    const self = this
-    const db = self.db
-    const exists = await db.schema.hasTable(tableName)
-    return exists
+    const db = this.db
+    return await db.schema.hasTable(tableName)
   }
 
   async hasTables () {
-    const self = this
     const dependedOnTables = []
-    for (let dependsIndex = 0; dependsIndex < self.depends.length; dependsIndex++) {
-      const dependedOnTableName = self.depends[dependsIndex]
-      dependedOnTables.push(self.hasTable(dependedOnTableName))
+    for (let dependsIndex = 0; dependsIndex < this.depends.length; dependsIndex++) {
+      const dependedOnTableName = this.depends[dependsIndex]
+      dependedOnTables.push(await this.hasTable(dependedOnTableName))
     }
-    return Promise.all(dependedOnTables)
+    return dependedOnTables
   }
 }
 

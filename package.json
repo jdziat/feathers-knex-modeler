@@ -1,29 +1,71 @@
 {
   "name": "feathers-knex-modeler",
-  "version": "1.5.1",
+  "version": "2.0.0",
   "description": "This package allows you to easily extend a table while you are developing it without requiring you to drop tables.",
   "main": "src/index.js",
-  "scripts": {
-    "test": "mocha --timeout 5000"
+  "types": "./src/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./src/index.d.ts",
+      "require": "./src/index.js",
+      "default": "./src/index.js"
+    }
   },
-  "keywords": [],
+  "files": [
+    "src/index.js",
+    "src/index.d.ts",
+    "README.md",
+    "LICENSE",
+    "CHANGELOG.md"
+  ],
+  "scripts": {
+    "lint": "standard",
+    "test:unit": "mocha test/unit --recursive --timeout 5000",
+    "test:integration": "mocha test/integration --recursive --timeout 30000",
+    "test:integration:docker": "docker compose up -d --wait && npm run test:integration; e=$?; docker compose down; exit $e",
+    "test": "npm run lint && npm run test:unit",
+    "test:all": "npm run lint && npm run test:unit && npm run test:integration",
+    "coverage": "c8 --reporter=text --reporter=lcov npm run test:unit"
+  },
+  "keywords": [
+    "knex",
+    "postgres",
+    "schema",
+    "migration",
+    "idempotent",
+    "feathers",
+    "table"
+  ],
   "author": "Jordan Dziat <jordan@dziat.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/jdziat/feathers-knex-modeler.git"
+  },
+  "bugs": {
+    "url": "https://github.com/jdziat/feathers-knex-modeler/issues"
+  },
+  "homepage": "https://github.com/jdziat/feathers-knex-modeler#readme",
   "publishConfig": {
     "registry": "https://registry.npmjs.org/"
   },
   "license": "ISC",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
     "debug": "^4.1.1",
-    "delay": "^4.3.0",
-    "lodash": "^4.17.15",
-    "p-queue": "^6.5.0",
     "p-wait-for": "^3.1.0"
   },
   "devDependencies": {
-    "chai": "^4.2.0",
-    "knex": "^0.21.1",
-    "mocha": "^8.0.1",
-    "pg": "^8.2.1",
-    "standard": "^14.3.4"
+    "c8": "^11.0.0",
+    "chai": "^4.5.0",
+    "knex": "^3.2.10",
+    "mocha": "^11.7.6",
+    "pg": "^8.16.3",
+    "standard": "^17.1.2"
+  },
+  "overrides": {
+    "serialize-javascript": "^7.0.5",
+    "diff": "^9.0.0"
   }
 }
