@@ -35,22 +35,24 @@ jobs:
         working-directory: website
         run: npm ci
 
+      # Always build (also on pull requests) so a broken docs build fails the PR.
       - name: Build
         working-directory: website
         run: npm run build
 
-      - name: Configure Pages
-        uses: actions/configure-pages@v5
-        with:
-          enablement: true
-
-      - name: Upload artifact
+      # Only publish the artifact when we are actually going to deploy (push to
+      # master). Pull requests get a build-only check and touch no Pages APIs.
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v3
         with:
           path: website/build
 
   deploy:
     name: Deploy docs
+    # GitHub Pages must be enabled once in repo Settings -> Pages -> Build and
+    # deployment -> Source: "GitHub Actions". After that this deploys on every
+    # push to master.
     if: github.event_name == 'push' && github.ref == 'refs/heads/master'
     needs: build
     runs-on: ubuntu-latest
