@@ -1,5 +1,7 @@
 # Feathers Knex modeler
 
+Documentation: https://jdziat.github.io/feathers-knex-modeler/
+
 This package allows you to extend a Knex/Postgres table while you are developing it without requiring you to drop tables.
 
 Install `knex` and the database driver your app uses alongside this package. For Postgres, that means installing `knex` and `pg` in your application.
