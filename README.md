@@ -130,3 +130,25 @@ Modeler emits initialization lifecycle events with a uniform payload: `{ table, 
 ## Foreign Keys
 
 Use a `references` option with either a `"table.column"` string or `{ table, column }`. Optional `onDelete` and `onUpdate` options support these referential actions: `CASCADE`, `RESTRICT`, `NO ACTION`, `SET NULL`, and `SET DEFAULT`.
+
+## Development
+
+```sh
+npm install
+npm test            # lint + unit tests (no database needed)
+```
+
+Integration tests run against a real Postgres. The repo ships a `docker-compose.yml`
+(matching the `postgres:16` service used in CI):
+
+```sh
+npm run test:integration:docker   # starts Postgres, runs the suite, tears it down
+```
+
+Or manage the database yourself:
+
+```sh
+docker compose up -d --wait
+DATABASE_URL=postgres://postgres:postgres@127.0.0.1:5432/myapp_test npm run test:integration
+docker compose down
+```

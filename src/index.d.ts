@@ -34,11 +34,10 @@ declare class Model {
     table: any,
     columnToAlter: any,
     column: Model.ColumnSpec,
-    option: Model.ColumnOption,
-    alterExisting: boolean
+    option: Model.ColumnOption
   ): any
   tableColumnUtilityMethod(table: any, column: Model.ColumnSpec): any
-  applyColumnBody(table: any, column: Model.ColumnSpec, alterExisting: boolean): void
+  applyColumnBody(table: any, column: Model.ColumnSpec): void
   alterColumn(column: Model.ColumnSpec, hasColumn: boolean): Promise<boolean>
   waitForReference(column: Model.ColumnSpec): Promise<void>
   createColumn(column: Model.ColumnSpec): Promise<boolean>

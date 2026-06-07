@@ -297,7 +297,7 @@ class Model extends EventEmitter {
     }
   }
 
-  applyColumnOption (table, columnToAlter, column, option, alterExisting) {
+  applyColumnOption (table, columnToAlter, column, option) {
     if (option.type === 'references' || option.type === 'onDelete' || option.type === 'onUpdate') {
       return columnToAlter
     }
@@ -310,9 +310,6 @@ class Model extends EventEmitter {
       this.debug(`Unable to find function ${option.type} for column: ${column.name}`)
     }
 
-    if (alterExisting === true && typeof columnToAlter.alter === 'function') {
-      columnToAlter.alter()
-    }
     return columnToAlter
   }
 
@@ -330,27 +327,31 @@ class Model extends EventEmitter {
     return columnToReturn
   }
 
-  applyColumnBody (table, column, alterExisting) {
+  applyColumnBody (table, column) {
     let columnToAlter = this.tableColumnUtilityMethod(table, column)
     for (let optionIndex = 0; optionIndex < column.options.length; optionIndex++) {
-      columnToAlter = this.applyColumnOption(table, columnToAlter, column, column.options[optionIndex], alterExisting)
+      columnToAlter = this.applyColumnOption(table, columnToAlter, column, column.options[optionIndex])
     }
   }
 
   async alterColumn (column, hasColumn) {
+    // Existing columns are left untouched. This tool creates tables and ADDS
+    // missing columns without dropping or re-altering what is already there.
+    // Re-running .alter() on a live column is unsafe and dialect-fragile — e.g.
+    // knex emits "drop not null" for a primary-key/serial column, which Postgres
+    // rejects ("column is in a primary key"). On a freshly created table every
+    // column already exists with its options applied, so this is also a no-op
+    // that avoids a redundant second ALTER round-trip per column. This single
+    // existing-column skip subsumes the former specificType and FK-only-options
+    // guards.
+    if (hasColumn === true) {
+      return true
+    }
+
     const db = this.db
-    const alterExisting = hasColumn === true
-
-    if (alterExisting === true && (column.specificType !== undefined && column?.specificType === true)) {
-      return true
-    }
-    if (alterExisting === true && column.options.some((option) => option.type !== 'references' && option.type !== 'onDelete' && option.type !== 'onUpdate') === false) {
-      return true
-    }
-
     try {
       await db.schema.alterTable(this.name, (table) => {
-        this.applyColumnBody(table, column, alterExisting)
+        this.applyColumnBody(table, column)
       })
       return true
     } catch (err) {
@@ -399,7 +400,7 @@ class Model extends EventEmitter {
     try {
       await db.schema.createTable(targetTable, (table) => {
         for (let columnIndex = 0; columnIndex < this.columns.length; columnIndex++) {
-          this.applyColumnBody(table, this.columns[columnIndex], false)
+          this.applyColumnBody(table, this.columns[columnIndex])
         }
       })
       return true

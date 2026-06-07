@@ -226,15 +226,14 @@ getReferenceOptions(column: Modeler.ColumnSpec): Modeler.ReferenceOptions | null
 
 Returns parsed reference options for a foreign key column, or null when the column has no `references` option.
 
-### `applyColumnOption(table, columnToAlter, column, option, alterExisting)`
+### `applyColumnOption(table, columnToAlter, column, option)`
 
 ```ts
 applyColumnOption(
   table: any,
   columnToAlter: any,
   column: Modeler.ColumnSpec,
-  option: Modeler.ColumnOption,
-  alterExisting: boolean
+  option: Modeler.ColumnOption
 ): any
 ```
 
@@ -248,13 +247,13 @@ tableColumnUtilityMethod(table: any, column: Modeler.ColumnSpec): any
 
 Creates a Knex column builder using `type`, `args`, or `specificType`.
 
-### `applyColumnBody(table, column, alterExisting)`
+### `applyColumnBody(table, column)`
 
 ```ts
-applyColumnBody(table: any, column: Modeler.ColumnSpec, alterExisting: boolean): void
+applyColumnBody(table: any, column: Modeler.ColumnSpec): void
 ```
 
-Creates or alters a column definition inside a Knex schema callback.
+Builds a column definition (type, args/specificType, and non-foreign-key options) inside a Knex schema callback.
 
 ### `alterColumn(column, hasColumn)`
 
@@ -262,7 +261,7 @@ Creates or alters a column definition inside a Knex schema callback.
 alterColumn(column: Modeler.ColumnSpec, hasColumn: boolean): Promise<boolean>
 ```
 
-Adds or alters a column. Existing `specificType` columns and existing columns with only foreign-key options are skipped.
+Adds the column when it is missing. Columns that already exist are left untouched — the modeler adds tables, missing columns, and missing foreign keys without re-altering live columns.
 
 ### `waitForReference(column)`
 

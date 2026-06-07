@@ -18,6 +18,7 @@ The format is based on Keep a Changelog, and this project adheres to Semantic Ve
 - BREAKING: Foreign keys are now created through the native Knex schema builder, removing raw foreign-key DDL and the related SQL-injection risk.
 - BREAKING: Initialization events changed from `init` and `initialization` to `init:start`, `init:success`, and `init:error` with a uniform `{ table, message, error }` payload.
 - BREAKING: The constructor no longer mutates caller-provided options or column definitions.
+- BREAKING: `init()` creates tables and adds missing columns and foreign keys, but no longer re-alters columns that already exist. Re-running an `ALTER` against a live column was unsafe and dialect-fragile (for example it failed on primary-key/serial columns with `column "id" is in a primary key`).
 - Dropped unused runtime dependencies on `lodash`, `delay`, and `p-queue`.
 
 ### Removed
