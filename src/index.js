@@ -1,7 +1,7 @@
 'use strict'
 
 const pWaitFor = require('p-wait-for')
-const delay = require('delay')
+const { setTimeout: delay } = require('node:timers/promises')
 const EventEmitter = require('events')
 const debug = require('debug')
 
